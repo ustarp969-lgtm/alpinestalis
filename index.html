@@ -2,34 +2,38 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>Alpinestars Tetris (Touch + Keyboard)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+<title>Alpinestalis Tetris – Touch Safe</title>
 <style>
   html,body{margin:0;height:100%;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
   #wrap{display:flex;justify-content:center;align-items:center;height:100%}
   canvas{background:#0a1224;box-shadow:0 10px 30px rgba(0,0,0,.5);border-radius:12px}
-  #ui{position:fixed;top:8px;left:8px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6)}
+  #ui{position:fixed;top:8px;left:8px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
   #ui small{opacity:.8}
-  /* タッチ操作ゾーン（透明だけど薄く見える） */
-  #pads{position:fixed;inset:0;pointer-events:none}
-  .pad{pointer-events:auto;position:absolute}
-  #padL{left:0;bottom:0;width:33vw;height:35vh;background:rgba(255,255,255,.04)}
-  #padR{right:0;bottom:0;width:33vw;height:35vh;background:rgba(255,255,255,.06)}
-  #padRot{left:0;top:0;width:100vw;height:30vh;background:rgba(255,255,255,.03)}
-  #padDrop{left:33vw;bottom:0;width:34vw;height:35vh;background:rgba(255,255,255,.02)}
+  /* 目に見える大きな操作ボタン */
+  #controls{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:10px;z-index:6}
+  .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .btn:active{transform:translateY(1px)}
+  #row-bottom{display:flex;gap:10px;margin-top:10px;justify-content:center}
+  #drop{min-width:160px}
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="cv" width="300" height="600"></canvas></div>
 <div id="ui">
   <div id="score">SCORE 0</div>
-  <small>← →：移動 / ↑：回転 / space：落下（スマホは画面左右/上タップ）</small>
+  <small>← →：移動 / ↑：回転 / space：落下（スマホは下のボタン）</small>
 </div>
-<div id="pads">
-  <div id="padL" class="pad" title="Left"></div>
-  <div id="padR" class="pad" title="Right"></div>
-  <div id="padRot" class="pad" title="Rotate"></div>
-  <div id="padDrop" class="pad" title="Drop"></div>
+
+<!-- 見える操作ボタン -->
+<div id="controls">
+  <button id="left"  class="btn">←</button>
+  <button id="rot"   class="btn">⟳</button>
+  <button id="right" class="btn">→</button>
+</div>
+<div id="row-bottom">
+  <button id="soft" class="btn">⇩</button>
+  <button id="drop" class="btn">⤓ ハードドロップ</button>
 </div>
 
 <script>
@@ -40,7 +44,7 @@ cv.width = COLS*SIZE; cv.height = ROWS*SIZE;
 let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
 let score=0;
 
-// ===== 形（I,O,T,L,J,S の6種） =====
+// ===== 形（I,O,T,L,J,S の6種）=====
 const SHAPES = {
   I: [[1,1,1,1]],
   O: [[1,1],[1,1]],
@@ -52,57 +56,121 @@ const SHAPES = {
 const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
 const NAMES = Object.keys(SHAPES);
 
-// ===== 画像（任意）: img/I.png などがあれば自動使用 =====
-const IMG = {};
-function loadImages(){
-  return Promise.all(NAMES.map(n=>new Promise(res=>{
-    const im=new Image();
-    im.onload=()=>{ IMG[n]=im; res(); };
-    im.onerror=()=>{ IMG[n]=null; res(); };
-    im.src = `img/${n}.png`;
-  })));
-}
+// 画像（任意：img/I.png 等があれば使用）
+const IMG={};
+Promise.all(NAMES.map(n=>new Promise(res=>{
+  const im=new Image();
+  im.onload=()=>{IMG[n]=im;res();};
+  im.onerror=()=>{IMG[n]=null;res();};
+  im.src=`img/${n}.png`;
+}))).then(()=>requestAnimationFrame(loop));
 
-// ===== ピース生成 =====
 function newPiece(){
-  const t = NAMES[(Math.random()*NAMES.length)|0];
-  return { t, m: SHAPES[t].map(r=>r.slice()), x:3, y:0 };
+  const t=NAMES[(Math.random()*NAMES.length)|0];
+  return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0};
 }
-let cur = newPiece();
+let cur=newPiece();
 
-// ===== 回転 =====
 function rot(m){
-  const h=m.length, w=m[0].length;
+  const h=m.length,w=m[0].length;
   const r=[...Array(w)].map(()=>Array(h).fill(0));
-  for(let y=0;y<h;y++) for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
   return r;
 }
-
-// ===== 衝突判定 =====
-function coll(m, px, py){
-  for(let y=0;y<m.length;y++) for(let x=0;x<m[0].length;x++){
+function coll(m,px,py){
+  for(let y=0;y<m.length;y++)for(let x=0;x<m[0].length;x++){
     if(!m[y][x]) continue;
     const nx=px+x, ny=py+y;
-    if(nx<0 || nx>=COLS || ny>=ROWS) return true;
+    if(nx<0||nx>=COLS||ny>=ROWS) return true;
     if(ny>=0 && board[ny][nx]) return true;
   }
   return false;
 }
-
-// ===== 固定 & ライン消去 =====
 function merge(){
-  for(let y=0;y<cur.m.length;y++) for(let x=0;x<cur.m[0].length;x++){
+  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++){
     if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
   }
-  // ライン消し
+  // ライン消去
   for(let y=ROWS-1;y>=0;y--){
     if(board[y].every(v=>v)){
       board.splice(y,1);
       board.unshift(Array(COLS).fill(0));
-      score += 100;
-      document.getElementById('score').textContent = `SCORE ${score}`;
-      y++;
+      score+=100; y++;
     }
   }
-  cur = newPiece();
-  if(coll(cur.m,cur.x,cur.y)){ // ゲームオーバー
+  document.getElementById('score').textContent=`SCORE ${score}`;
+  cur=newPiece();
+  if(coll(cur.m,cur.x,cur.y)){ board=Array.from({length:ROWS},()=>Array(COLS).fill(0)); score=0; document.getElementById('score').textContent='SCORE 0'; }
+}
+function drawCell(x,y,t){
+  const gx=x*SIZE, gy=y*SIZE, im=IMG[t];
+  if(im){ cx.drawImage(im,gx+2,gy+2,SIZE-4,SIZE-4); }
+  else { cx.fillStyle=COLORS[t]||"#888"; cx.fillRect(gx+1,gy+1,SIZE-2,SIZE-2); }
+}
+function render(){
+  cx.clearRect(0,0,cv.width,cv.height);
+  cx.strokeStyle='rgba(255,255,255,.06)';
+  for(let x=0;x<=COLS;x++){ cx.beginPath(); cx.moveTo(x*SIZE,0); cx.lineTo(x*SIZE,ROWS*SIZE); cx.stroke(); }
+  for(let y=0;y<=ROWS;y++){ cx.beginPath(); cx.moveTo(0,y*SIZE); cx.lineTo(COLS*SIZE,y*SIZE); cx.stroke(); }
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
+  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
+}
+let last=0, acc=0;
+function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else merge(); }
+function loop(ts){
+  if(!last) last=ts; const dt=ts-last; last=ts;
+  const gravity=500; acc+=dt; if(acc>=gravity){ acc=0; stepDown(); }
+  render(); requestAnimationFrame(loop);
+}
+
+// ===== キーボード =====
+addEventListener('keydown',e=>{
+  if(e.code==='ArrowLeft' && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
+  if(e.code==='ArrowRight'&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
+  if(e.code==='ArrowDown') stepDown();
+  if(e.code==='ArrowUp'){ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; }
+  if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
+});
+
+// ===== タッチ：見えるボタン（長押しリピート対応） =====
+function holdRepeat(fn,initial=180,every=90){
+  let t=null, i=null;
+  return {
+    start(){ fn(); t=setTimeout(()=>{i=setInterval(fn,every);},initial); },
+    end(){ clearTimeout(t); clearInterval(i); t=i=null; }
+  };
+}
+const leftBtn = document.getElementById('left');
+const rightBtn= document.getElementById('right');
+const rotBtn  = document.getElementById('rot');
+const softBtn = document.getElementById('soft');
+const dropBtn = document.getElementById('drop');
+
+const repL=holdRepeat(()=>{ if(!coll(cur.m,cur.x-1,cur.y)) cur.x--; });
+const repR=holdRepeat(()=>{ if(!coll(cur.m,cur.x+1,cur.y)) cur.x++; });
+const repD=holdRepeat(()=> stepDown(), 120, 60);
+
+function bindPress(el,onDown,onUp){
+  const down = ()=>onDown&&onDown();
+  const up   = ()=>onUp&&onUp();
+  el.addEventListener('touchstart',down,{passive:true});
+  el.addEventListener('touchend',up,{passive:true});
+  el.addEventListener('touchcancel',up,{passive:true});
+  el.addEventListener('mousedown',down);
+  el.addEventListener('mouseup',up);
+  el.addEventListener('mouseleave',up);
+}
+bindPress(leftBtn, ()=>repL.start(), ()=>repL.end());
+bindPress(rightBtn,()=>repR.start(), ()=>repR.end());
+bindPress(rotBtn,  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
+let pressT=0;
+bindPress(softBtn, ()=>repD.start(), ()=>repD.end());
+softBtn.addEventListener('touchstart',()=>{pressT=Date.now();},{passive:true});
+softBtn.addEventListener('mouseup',()=>{pressT=0;});
+bindPress(dropBtn, ()=>{
+  while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge();
+});
+
+</script>
+</body>
+</html>
