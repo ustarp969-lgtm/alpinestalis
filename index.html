@@ -3,180 +3,236 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
-<title>Photo Balance – 6枚バランスゲーム</title>
+<title>Photo Balance – かわいいバランスゲーム</title>
 <style>
-  :root { --bg:#0b1020; --fg:#fff; --panel:#121a30; --accent:#32e0a5; }
-  html,body{margin:0;height:100%;background:linear-gradient(#1a2953,#0b1020);}
-  #hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:10px;align-items:center;z-index:5;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;text-shadow:0 2px 6px rgba(0,0,0,.5)}
+  :root{
+    --bg1:#ffe6f7; --bg2:#e9f5ff; --fg:#4a4a6a; --panel:#ffffffcc; --accent:#ff79b0;
+  }
+  html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bg1),var(--bg2));}
+  #hud{
+    position:fixed;top:10px;left:10px;right:10px;display:flex;gap:10px;align-items:center;z-index:5;
+    color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
   #score{font-weight:900}
   #msg{margin-left:auto;opacity:.9}
   #btns{display:flex;gap:8px}
-  button{border:none;border-radius:10px;padding:10px 14px;font-weight:800}
-  #dropBtn{background:var(--accent);color:#053}
-  #retryBtn{background:#24374f;color:#fff}
-  #stage{display:block;margin:0 auto;touch-action:none}
-  #panel{position:fixed;bottom:10px;left:0;right:0;display:flex;justify-content:center;z-index:5}
-  #hint{color:#fff;opacity:.85;font-family:system-ui,-apple-system,sans-serif}
+  button{border:none;border-radius:14px;padding:10px 14px;font-weight:800}
+  #dropBtn{background:var(--accent);color:#fff;box-shadow:0 6px 14px rgba(255,121,176,.35)}
+  #retryBtn{background:#9fd6ff;color:#265;box-shadow:0 6px 14px rgba(0,0,0,.12)}
+  #stage{display:block;margin:0 auto;touch-action:none;filter: drop-shadow(0 10px 22px rgba(0,0,0,.15)); border-radius:16px}
+  #hintWrap{position:fixed;bottom:10px;left:0;right:0;display:flex;justify-content:center;z-index:5}
+  #hint{color:var(--fg);opacity:.85;font-family:system-ui,-apple-system,sans-serif;background:var(--panel);padding:6px 10px;border-radius:12px}
+  /* ふわ雲を描くための背景キャンバス（全画面） */
+  #sky{position:fixed;inset:0;width:100vw;height:100vh;z-index:-1;display:block}
 </style>
 </head>
 <body>
+<canvas id="sky"></canvas>
+
 <div id="hud">
   <div id="score">SCORE 0</div>
-  <div id="msg">左右にスライド → DROPで落とす</div>
+  <div id="msg">左右にスライド → DROPで落とす（タップでBGM）</div>
   <div id="btns">
     <button id="dropBtn">DROP</button>
     <button id="retryBtn">Retry</button>
   </div>
 </div>
+
 <canvas id="stage" width="420" height="720" aria-label="balance-stage"></canvas>
-<div id="panel"><div id="hint">指/マウスで左右移動・タップ/クリックで落下</div></div>
+
+<div id="hintWrap"><div id="hint">指/マウスで左右移動・タップ/クリックで落下</div></div>
 
 <!-- Matter.js 物理エンジン -->
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+
 <script>
-/* ================= 設定（ここだけ見ればOK） ================= */
-// 写真ファイル名（リポジトリ直下に置く）
-// 既存の I〜S をそのまま使う設定。1.png〜6.png にしたい場合は下の行を差し替え。
-const FILES = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
-// const FILES = ["1.png","2.png","3.png","4.png","5.png","6.png"]; // ←この形で使いたい場合
+/* =================== かわいい空背景（パステル＋ふわ雲） =================== */
+const sky = document.getElementById('sky'); const sx = sky.getContext('2d');
+function fitSky(){ sky.width=innerWidth; sky.height=innerHeight; }
+fitSky(); addEventListener('resize',fitSky);
+const clouds=[...Array(14)].map(()=>({x:Math.random()*innerWidth,y:innerHeight*(0.1+Math.random()*0.5),v:8+Math.random()*18,s:80+Math.random()*180, a:.5+.4*Math.random()}));
+let lastSky=performance.now();
+function drawSky(dt){
+  const g = sx.createLinearGradient(0,0,0,sky.height);
+  g.addColorStop(0,'#ffe6f7'); g.addColorStop(.55,'#f6f0ff'); g.addColorStop(1,'#e9f5ff');
+  sx.fillStyle=g; sx.fillRect(0,0,sky.width,sky.height);
+  // ふわ雲
+  clouds.forEach(c=>{
+    c.x += c.v*dt; if(c.x>innerWidth+200) { c.x = -200; c.y = innerHeight*(0.1+Math.random()*0.5); }
+    sx.fillStyle=`rgba(255,255,255,${c.a})`;
+    sx.beginPath(); sx.ellipse(c.x, c.y, c.s*0.6, c.s*0.35, 0,0,7);
+    sx.ellipse(c.x-40, c.y+8, c.s*0.35, c.s*0.25, 0,0,7);
+    sx.ellipse(c.x+40, c.y+10, c.s*0.4, c.s*0.28, 0,0,7);
+    sx.fill();
+  });
+}
+(function skyLoop(){
+  const now=performance.now(), dt=(now-lastSky)/1000; lastSky=now;
+  drawSky(dt); requestAnimationFrame(skyLoop);
+})();
 
-const CANVAS_W = 420, CANVAS_H = 720;
-const BASE_Y   = 560;  // 台の高さ
-const BASE_W   = 260, BASE_H = 18;
-const MAX_PHOTO_W = 150; // 1枚の最大幅（元画像の比率は維持）
-const GRAVITY_Y = 1.0;
+/* =================== ふわBGM（WebAudio・タップで開始） =================== */
+let actx=null, master=null, timer=null;
+function cuteBgm(){
+  if(actx) return;
+  const AC = window.AudioContext||window.webkitAudioContext;
+  actx = new AC();
+  master = actx.createGain(); master.gain.value=.14; master.connect(actx.destination);
+  const seq = [0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5]; // メジャーで可愛い進行
+  const base=261.63; // C4
+  let i=0;
+  function note(semi,dur=.35, gain=.18, type='triangle'){
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value = base*Math.pow(2, semi/12);
+    o.connect(g); g.connect(master);
+    const t=actx.currentTime;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(gain,t+.03);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.start(t); o.stop(t+dur+.02);
+  }
+  function loop(){
+    const s = seq[i % seq.length];
+    note(s,.38,.16,'triangle');
+    setTimeout(()=>note(s+12,.22,.10,'sine'), 80); // 上に小さく重ねる
+    i++; timer=setTimeout(loop, 360);
+  }
+  loop();
+}
+addEventListener('pointerdown', ()=>cuteBgm(), {once:true});
 
-/* ================= 前処理：画像読み込み ================= */
+/* =================== バランスゲーム本体 =================== */
+/* —— 設定 —— */
+const FILES = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"]; // 写真名（リポジトリ直下）
+const CANVAS_W=420, CANVAS_H=720;
+const BASE_Y=560, BASE_W=240, BASE_H=16;         // 台を少し細く
+const MAX_PHOTO_W=96;                             // ★ 小さめ（かわいいサイズ）
+const GRAVITY_Y=0.95;                             // 落下ふわっと
+
+/* —— 画像プリロード —— */
 function preload(srcs){
   return Promise.all(srcs.map(s=>new Promise(res=>{
-    const im=new Image(); im.onload=()=>res({src:s, w:im.naturalWidth, h:im.naturalHeight, im}); im.onerror=()=>res({src:s, w:128, h:128, im:null}); im.src=s+"?v=1";
+    const im=new Image(); im.onload=()=>res({src:s, w:im.naturalWidth, h:im.naturalHeight, im});
+    im.onerror=()=>res({src:s, w:128, h:128, im:null}); im.src=s+"?v=1";
   })));
 }
 
-/* ================== 物理世界の準備 ================== */
+/* —— Matter.js 準備 —— */
 const {Engine, Render, Runner, World, Bodies, Body, Events, Composite} = Matter;
-const engine = Engine.create({gravity:{x:0, y:GRAVITY_Y}});
+const engine = Engine.create({gravity:{x:0,y:GRAVITY_Y}});
 const world  = engine.world;
 
 const canvas = document.getElementById('stage');
 const render = Render.create({
-  canvas,
-  engine,
-  options:{
-    width: CANVAS_W, height: CANVAS_H,
-    wireframes: false,
-    background: 'transparent',
-    pixelRatio: Math.min(window.devicePixelRatio, 2)
-  }
+  canvas, engine,
+  options:{ width:CANVAS_W, height:CANVAS_H, wireframes:false, background:'rgba(255,255,255,.35)', pixelRatio:Math.min(devicePixelRatio,2) }
 });
 Render.run(render);
 const runner = Runner.create(); Runner.run(runner, engine);
 
-/* === ステージ（台と壁） === */
-const ground = Bodies.rectangle(CANVAS_W/2, BASE_Y, BASE_W, BASE_H, {isStatic:true, restitution:0.1,
-  render:{fillStyle:"#2ad4a6"}});
-const pegL   = Bodies.rectangle(CANVAS_W/2 - BASE_W/2 - 18, BASE_Y-24, 12, 60, {isStatic:true, render:{fillStyle:"#183"}}); // ガード
-const pegR   = Bodies.rectangle(CANVAS_W/2 + BASE_W/2 + 18, BASE_Y-24, 12, 60, {isStatic:true, render:{fillStyle:"#183"}});
+/* —— ステージ（台・壁） —— */
+const ground = Bodies.rectangle(CANVAS_W/2, BASE_Y, BASE_W, BASE_H, {isStatic:true, restitution:0.12,
+  render:{ fillStyle:"#ffd1e5", strokeStyle:"#ff79b0", lineWidth:2 }});
+const pegL   = Bodies.rectangle(CANVAS_W/2 - BASE_W/2 - 16, BASE_Y-22, 10, 56, {isStatic:true, render:{fillStyle:"#b9ecff"}});
+const pegR   = Bodies.rectangle(CANVAS_W/2 + BASE_W/2 + 16, BASE_Y-22, 10, 56, {isStatic:true, render:{fillStyle:"#b9ecff"}});
 const wallL  = Bodies.rectangle(-20, CANVAS_H/2, 40, CANVAS_H, {isStatic:true, render:{visible:false}});
 const wallR  = Bodies.rectangle(CANVAS_W+20, CANVAS_H/2, 40, CANVAS_H, {isStatic:true, render:{visible:false}});
-const floor  = Bodies.rectangle(CANVAS_W/2, CANVAS_H+80, CANVAS_W, 160, {isStatic:true, render:{visible:false}}); // 落下検知用
+const floor  = Bodies.rectangle(CANVAS_W/2, CANVAS_H+80, CANVAS_W, 160, {isStatic:true, render:{visible:false}});
 World.add(world, [ground, pegL, pegR, wallL, wallR, floor]);
 
-/* ================== ゲーム管理 ================== */
-let photos = [];       // 読み込んだ画像情報
-let queueIndex = 0;    // 次に出す写真
-let current = null;    // いま操作中のボディ
-let followingX = CANVAS_W/2; // 指/マウス位置
-let score = 0;         // 積めた枚数
-const scoreEl = document.getElementById('score');
-const msgEl   = document.getElementById('msg');
+/* —— 状態 —— */
+let photos=[], queueIndex=0, current=null, followingX=CANVAS_W/2, score=0;
+const scoreEl=document.getElementById('score'), msgEl=document.getElementById('msg');
+function updateScore(n){ score=n; scoreEl.textContent="SCORE "+score; }
 
-function updateScore(n){ score = n; scoreEl.textContent = "SCORE " + score; }
-
+/* —— 画像→物理ボディ —— */
 function makeBodyFromPhoto(p, x, y, isStatic=true){
-  // 画像の比率を維持しつつ、最大幅MAX_PHOTO_Wに収める
   const ratio = p.w ? (p.h/p.w) : 1;
+  // “かわいい”感じにちょい丸角＆ちょい反発・摩擦軽め
   const W = Math.min(MAX_PHOTO_W, p.w || MAX_PHOTO_W);
   const H = W * ratio;
   const body = Bodies.rectangle(x, y, W, H, {
     isStatic,
-    restitution: 0.05,
-    friction: 0.8,
-    frictionStatic: 0.9,
+    restitution: 0.08,
+    friction: 0.5,
+    frictionStatic: 0.7,
+    chamfer: { radius: Math.min(W,H)*0.12 },
     render: p.im ? { sprite:{ texture:p.src, xScale: W/(p.w||W), yScale: H/(p.h||H) } }
-                 : { fillStyle:"#ccc", strokeStyle:"#888", lineWidth:1 }
+                 : { fillStyle:"#ffddee", strokeStyle:"#ff9fc6", lineWidth:2 }
   });
   return body;
 }
 
+/* —— 出現＆落下 —— */
 function spawnNext(){
   const p = photos[queueIndex % photos.length];
   queueIndex++;
-  const x = followingX;
-  current = makeBodyFromPhoto(p, x, 80, true); // 最初は静止体→左右に追従
+  current = makeBodyFromPhoto(p, followingX, 90, true); // 最初は静止で左右追従
   World.add(world, current);
 }
-
 function dropCurrent(){
   if(!current) return;
-  Body.setStatic(current, false); // 落とす！
+  Body.setStatic(current, false);
   current = null;
-  updateScore(score + 1);
-  // 少し待ってから次を生成
-  setTimeout(()=>spawnNext(), 600);
+  // 可愛い効果音（小さな“ぽよ”）
+  ping(660, .06, .08);
+  setTimeout(()=>spawnNext(), 500);
+  updateScore(score+1);
 }
 
-/* ========== 入力（スマホ/PC共通）========== */
+/* —— 入力（スマホ/PC） —— */
 function canvasXFromEvent(e){
-  const rect = canvas.getBoundingClientRect();
+  const r = canvas.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  return Math.max(30, Math.min(CANVAS_W-30, (clientX - rect.left) * (CANVAS_W/rect.width)));
+  return Math.max(30, Math.min(CANVAS_W-30, (clientX - r.left) * (CANVAS_W/r.width)));
 }
-canvas.addEventListener('pointermove', e=>{
-  followingX = canvasXFromEvent(e);
-});
-canvas.addEventListener('pointerdown', e=>{
-  followingX = canvasXFromEvent(e);
-  // 画面タップ/クリックでDROP
-  dropCurrent();
-});
+canvas.addEventListener('pointermove', e=>{ followingX = canvasXFromEvent(e); });
+canvas.addEventListener('pointerdown', e=>{ followingX=canvasXFromEvent(e); dropCurrent(); });
 document.getElementById('dropBtn').addEventListener('click', dropCurrent);
-document.getElementById('retryBtn').addEventListener('click', ()=>{
-  // 全ボディをリセット（台と壁以外を削除）
-  const toRemove = Composite.allBodies(world).filter(b=>![ground,pegL,pegR,wallL,wallR,floor].includes(b));
-  toRemove.forEach(b=>World.remove(world,b));
-  score=0; updateScore(0); queueIndex=0; current=null; spawnNext();
-});
+document.getElementById('retryBtn').addEventListener('click', resetAll);
 
-/* ====== フォロー制御（静止中の現在ブロックを指に追従させる） ====== */
+/* —— 追従・判定 —— */
 Events.on(engine, 'beforeUpdate', ()=>{
   if(current && current.isStatic){
-    // Xのみ追従（Yは固定）、左右端で台の上に収まるように少し鈍く追従
     const dx = followingX - current.position.x;
-    Body.setPosition(current, {x: current.position.x + dx * 0.25, y: current.position.y});
+    Body.setPosition(current, {x: current.position.x + dx*0.25, y: current.position.y});
   }
 });
-
-/* ====== ゲームオーバー判定 ====== */
 Events.on(engine, 'afterUpdate', ()=>{
-  // 台より下に落ちたブロックがあればアウト
   const bodies = Composite.allBodies(world);
   const fallen = bodies.find(b => !b.isStatic && b.position.y > CANVAS_H + 40);
   if(fallen){
-    msgEl.textContent = "GAME OVER… Retryを押してね";
-    // これ以上落とせないように current を無効化
+    msgEl.textContent = "GAME OVER… Retryで再挑戦！";
     current = null;
   } else {
-    msgEl.textContent = "左右にスライド → DROPで落とす";
+    msgEl.textContent = "左右にスライド → DROPで落とす（タップでBGM）";
   }
 });
 
-/* ================== スタートアップ ================== */
+/* —— ミニSE（“ぽよ”） —— */
+function ping(freq=660, dur=.08, gain=.09){
+  if(!actx) return;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type='sine'; o.frequency.value=freq; o.connect(g); g.connect(master);
+  const t=actx.currentTime;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(gain,t+.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.start(t); o.stop(t+dur+.02);
+}
+
+/* —— リセット —— */
+function resetAll(){
+  const keep=[ground,pegL,pegR,wallL,wallR,floor];
+  Composite.allBodies(world).forEach(b=>{ if(!keep.includes(b)) World.remove(world,b); });
+  queueIndex=0; current=null; updateScore(0); spawnNext();
+}
+
+/* —— スタートアップ —— */
 preload(FILES).then(list=>{
-  photos = list;         // [{src,w,h,im},...]
-  Render.lookAt(render, { min:{x:0,y:0}, max:{x:CANVAS_W,y:CANVAS_H} });
-  updateScore(0);
-  spawnNext();
+  photos = list;
+  Render.lookAt(render, {min:{x:0,y:0}, max:{x:CANVAS_W,y:CANVAS_H}});
+  updateScore(0); spawnNext();
 });
 </script>
 </body>
