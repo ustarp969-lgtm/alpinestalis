@@ -3,145 +3,252 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>ustarp969GAME – Living Hand</title>
+<title>ustarp969GAME – Balance</title>
 <style>
-html,body{
-  margin:0;
-  background:#0c1218;
-  color:#fff;
-  overflow:hidden;
-  font-family:sans-serif;
-}
-#hud{position:absolute;top:10px;left:10px;z-index:10}
-#score{font-weight:800}
-canvas{display:block;margin:auto;background:linear-gradient(180deg,#bfe7ff,#eaf6ff 60%,#ffe1ee)}
-#over{
-  position:absolute;inset:0;display:none;
-  align-items:center;justify-content:center;
-  flex-direction:column;
-  background:rgba(0,0,0,.6);
-  color:#fff;font-size:36px;font-weight:900;
-  text-shadow:0 3px 10px #000;
-  z-index:20;
-}
-button{
-  position:absolute;top:10px;right:10px;
-  background:#ff5c97;color:#fff;border:none;padding:10px 14px;border-radius:10px;font-weight:700;
-}
+  :root{
+    --w:420px; --h:720px;
+    --frame: #2c3340;     /* 外枠 */
+    --accent: #00d4ff;    /* ハイライト */
+  }
+  html,body{margin:0;height:100%;overflow:hidden;background:#0e141b;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+
+  /* ===== メカっぽいフレーム ===== */
+  .shell{
+    position:fixed; inset:0; display:grid; place-items:center;
+    background:
+      radial-gradient(1200px 600px at 50% -100px, #14202d 0, #0e141b 65%);
+  }
+  .frame{
+    position:relative; width:var(--w); height:calc(var(--h) + 72px); /* 上部にHUDぶん */
+    padding:36px 12px 24px;
+    border-radius:18px;
+    background:
+      linear-gradient(180deg,#1b2430,#111720 60%,#0e141b 100%);
+    box-shadow:
+      0 10px 30px #0008,
+      inset 0 0 0 2px #111820,
+      inset 0 0 40px #000;
+    outline:1px solid #111;
+  }
+  /* 内側の発光ライン */
+  .frame::before{
+    content:""; position:absolute; inset:6px; border-radius:12px;
+    box-shadow: inset 0 0 0 2px #1a2430, inset 0 0 24px #0ff2;
+    background:
+      linear-gradient(90deg,transparent 0 10%,#00d4ff22 12%,transparent 14% 86%,#00d4ff22 88%,transparent 90%),
+      linear-gradient(0deg,transparent 0 10%,#00d4ff22 12%,transparent 14% 86%,#00d4ff22 88%,transparent 90%);
+    pointer-events:none;
+  }
+  /* ボルト風 */
+  .bolt{position:absolute; width:14px; height:14px; border-radius:50%; background:#1a202a; box-shadow: inset 0 2px 3px #0008, 0 -1px 0 #2a3240;}
+  .b1{left:10px; top:10px} .b2{right:10px; top:10px}
+  .b3{left:10px; bottom:10px} .b4{right:10px; bottom:10px}
+
+  /* ===== HUD ===== */
+  #hud{
+    position:absolute; left:20px; right:20px; top:12px; z-index:5;
+    display:flex; justify-content:space-between; align-items:center; color:#dfe9f3;
+  }
+  #score{font-weight:900; letter-spacing:.5px}
+  #tip{font-size:12px; opacity:.8; margin-left:8px}
+  button{border:none; border-radius:10px; padding:10px 14px; font-weight:800; cursor:pointer}
+  #drop{background:#ff5c97; color:#fff; margin-right:6px}
+  #retry{background:#79c6ff; color:#003}
+
+  /* ===== Canvas（重ね順） ===== */
+  #wrap{position:relative; width:var(--w); height:var(--h); margin:24px auto 0}
+  #bg,#stage{position:absolute; inset:0; width:var(--w); height:var(--h); display:block; touch-action:none}
+  #bg{z-index:1} #stage{z-index:2}
+
+  /* タイトルとゲームオーバー */
+  #title{position:absolute; left:0; right:0; top:calc(50% - 30px); text-align:center;
+    color:#fff; font-weight:900; font-size:28px; text-shadow:0 3px 10px #0007; z-index:3; pointer-events:none}
+  #over{
+    position:absolute; inset:0; display:none; z-index:4;
+    background:radial-gradient(400px 260px at 50% 50%, #0007, #000d);
+    color:#fff; display:grid; place-items:center; text-align:center
+  }
+  #over .msg{font-size:40px; font-weight:900; text-shadow:0 4px 18px #000}
+  #over .sub{margin-top:8px; font-size:14px; opacity:.85}
 </style>
 </head>
 <body>
-<div id="hud"><span id="score">SCORE 0</span></div>
-<button id="retry">Retry</button>
-<canvas id="stage" width="420" height="720"></canvas>
-<div id="over">GAME OVER</div>
+<div class="shell">
+  <div class="frame">
+    <div id="hud">
+      <div>
+        <span id="score">SCORE 0</span>
+        <span id="tip">　タップでBGM / スワイプで左右移動 → <b>DROP</b>で落とす</span>
+      </div>
+      <div>
+        <button id="drop">DROP</button>
+        <button id="retry">Retry</button>
+      </div>
+    </div>
+
+    <div id="wrap">
+      <canvas id="bg" width="420" height="720"></canvas>
+      <canvas id="stage" width="420" height="720"></canvas>
+      <div id="title">ustarp969GAME</div>
+      <div id="over">
+        <div>
+          <div class="msg">GAME OVER</div>
+          <div class="sub">Retry で再スタート</div>
+        </div>
+      </div>
+    </div>
+    <div class="bolt b1"></div><div class="bolt b2"></div>
+    <div class="bolt b3"></div><div class="bolt b4"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices}=Matter;
+/* ========= 背景 ========= */
 const W=420,H=720;
-const canvas=document.getElementById('stage');
-const engine=Engine.create({gravity:{x:0,y:.95}});
-const render=Render.create({canvas,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
-Render.run(render);
-Runner.run(Runner.create(),engine);
+const bg=document.getElementById('bg'), bctx=bg.getContext('2d');
+function drawBG(t=0){
+  const g=bctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,"#bfe7ff"); g.addColorStop(.6,"#eaf6ff"); g.addColorStop(1,"#ffe1ee");
+  bctx.fillStyle=g; bctx.fillRect(0,0,W,H);
+  bctx.globalAlpha=.6;
+  for(let i=0;i<6;i++){
+    const x=(t*12+i*110)%(W+160)-80, y=70+i*48;
+    bctx.fillStyle="#fff";
+    bctx.beginPath(); bctx.ellipse(x,y,36,16,0,0,Math.PI*2); bctx.ellipse(x+24,y+6,24,10,0,0,Math.PI*2); bctx.ellipse(x-22,y+8,20,9,0,0,Math.PI*2); bctx.fill();
+  }
+  bctx.globalAlpha=1;
+}
+(function loop(){ drawBG(performance.now()/1000); requestAnimationFrame(loop); })();
 
-/* ========== 音 ========== */
+/* ========= サウンド（WebAudio） ========= */
 let AC=null, master=null;
-const startAudio=()=>{
-  if(AC)return;
-  const C=window.AudioContext||window.webkitAudioContext;
-  AC=new C();master=AC.createGain();master.gain.value=.2;master.connect(AC.destination);
-}
-function tone(f,len=.2,vol=.2,type='sine'){
-  if(!AC)return;
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type=type;o.frequency.value=f;o.connect(g);g.connect(master);
+const startAudio=()=>{ if(AC) return;
+  const C=window.AudioContext||window.webkitAudioContext; AC=new C();
+  master=AC.createGain(); master.gain.value=.13; master.connect(AC.destination);
+  startBGM();
+};
+function tone(freq,len=.25,vol=.16,type='triangle'){
+  if(!AC) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type; o.frequency.value=freq; o.connect(g); g.connect(master);
   const t=AC.currentTime;
-  g.gain.setValueAtTime(0.001,t);g.gain.linearRampToValueAtTime(vol,t+.02);
-  g.gain.exponentialRampToValueAtTime(0.001,t+len);
-  o.start(t);o.stop(t+len+.02);
+  g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+.02);
+  g.gain.exponentialRampToValueAtTime(.0001,t+len);
+  o.start(t); o.stop(t+len+.02);
 }
+/* BGM：簡単ループ */
+let bgmTimer=null;
+function startBGM(){
+  const base=261.63; // C4
+  const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5];
+  let i=0;
+  const loop=()=>{ tone(base*Math.pow(2,seq[i%seq.length]/12),.32,.12,'sine'); if(i%4===0) tone(base/2,.5,.08,'triangle'); i++; bgmTimer=setTimeout(loop,340); };
+  loop();
+}
+function stopBGM(){ if(bgmTimer) clearTimeout(bgmTimer); }
+/* SFX */
 const SFX={
-  catch(){tone(440,.1,.2,'square');tone(660,.1,.2,'triangle');},
-  over(){tone(330,.3,.3,'sawtooth');setTimeout(()=>tone(220,.5,.2,'triangle'),300);}
+  drop(){ const f=[880,988,1174]; f.forEach((v,k)=>tone(v,.09-k*.02,.18,'square')); },
+  land(){ tone(220,.08,.16,'triangle'); setTimeout(()=>tone(180,.12,.12,'triangle'),50); },
+  over(){ stopBGM(); tone(392,.28,.2,'sawtooth'); setTimeout(()=>tone(220,.6,.18,'sawtooth'),260); }
 }
 
-/* ========== ブロック ========== */
-function createBlock(x=W/2,y=80){
-  const color=['#ff7b7b','#7bafff','#7bff9c'][Math.floor(Math.random()*3)];
-  const b=Bodies.rectangle(x,y,50,50,{render:{fillStyle:color}});
-  World.add(engine.world,b);
-  return b;
-}
-let block=createBlock();
+/* ========= Matter.js ========= */
+const {Engine,Render,Runner,World,Bodies,Body,Composite,Vertices,Events}=Matter;
+const stage=document.getElementById('stage');
+const engine=Engine.create({gravity:{x:0,y:.95}});
+const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
+Render.run(render); Runner.run(Runner.create(),engine);
 
-/* ========== 手のひら ========== */
-let handVerts=[
-  Vertices.fromPath("M-80 0 -50 -20 -20 -10 0 0 20 10 40 30 60 20 80 0 60 40 20 60 -20 50 -60 30"),
-  Vertices.fromPath("M-90 0 -60 -10 -30 -20 0 -5 30 10 50 30 70 20 80 0 50 50 10 60 -40 40 -70 20"),
-  Vertices.fromPath("M-70 0 -40 -10 -10 -5 20 0 40 10 60 30 50 50 10 60 -40 40 -70 20"),
-  Vertices.fromPath("M-80 0 -50 -10 -20 -5 10 0 30 10 50 30 70 20 60 40 20 60 -30 50 -70 20")
-];
-function createHand(){
-  const v=handVerts[Math.floor(Math.random()*handVerts.length)];
-  const h=Bodies.fromVertices(W/2,580,v,{
-    isStatic:true,
-    render:{fillStyle:"#f4c49b",strokeStyle:"#000",lineWidth:2}
-  });
-  return h;
-}
-let hand=createHand();
-World.add(engine.world,hand);
+/* バイク台：ベクタ形状＋車輪 */
+const bikeVerts=Vertices.fromPath("0 0 70 -16 110 -8 140 -18 170 -6 200 -12 230 0 180 16 120 14 60 10");
+const bikeY=560;
+const bike = Bodies.fromVertices(W/2,bikeY,bikeVerts,{isStatic:true,render:{fillStyle:"#2f333b",strokeStyle:"#000",lineWidth:2}});
+const wheelL=Bodies.circle(W/2-60,590,24,{isStatic:true,render:{fillStyle:"#4a4f58",strokeStyle:"#000",lineWidth:2}});
+const wheelR=Bodies.circle(W/2+90,590,24,{isStatic:true,render:{fillStyle:"#4a4f58",strokeStyle:"#000",lineWidth:2}});
+World.add(engine.world,[bike,wheelL,wheelR]);
+/* サイド壁 */
+World.add(engine.world,[
+  Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}}),
+  Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}})
+]);
 
-/* ========== スコア＆ゲーム状態 ========== */
-let score=0,over=false;
-function setScore(n){score=n;document.getElementById('score').textContent="SCORE "+n;}
+/* 画像（大文字ファイル名そのまま） */
+const SPRITES=["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
+function preload(list){
+  return Promise.all(list.map(name=>new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>res({ok:true,name,img,w:img.naturalWidth,h:img.naturalHeight,src:"./"+name});
+    img.onerror=()=>res({ok:false,name,w:80,h:100,src:"./"+name});
+    img.src="./"+name+"?v=3";
+  })));
+}
+
+/* 状態 */
+const MAX_W=56;  // キャラの描画幅（小さめ）
+let photos=[], qi=0, cur=null, followX=W/2, score=0, over=false;
+const scoreEl=document.getElementById('score'), overEl=document.getElementById('over'), titleEl=document.getElementById('title');
+
+function setScore(n){ score=n; scoreEl.textContent="SCORE "+score; }
+function makeBody(p,x,y,isStatic=true){
+  const ratio=(p.h||100)/(p.w||80);
+  const w=Math.min(MAX_W,p.w||MAX_W), h=w*ratio;
+  const opt={isStatic, restitution:0.08, friction:0.7};
+  opt.render = p.ok ? {sprite:{texture:p.src, xScale:w/p.w, yScale:h/p.h}} : {fillStyle:"#ffb3d1",strokeStyle:"#c03",lineWidth:1.5};
+  return Bodies.rectangle(x,y,w,h,opt);
+}
+function spawn(){
+  if(over) return;
+  const p=photos[qi++%photos.length];
+  cur=makeBody(p,followX,90,true);
+  World.add(engine.world,cur);
+  titleEl.style.display='none';
+}
+function drop(){
+  if(!cur||over) return;
+  Body.setStatic(cur,false);
+  SFX.drop();
+  cur=null; setScore(score+1);
+  setTimeout(spawn,600);
+}
 function reset(){
   Composite.allBodies(engine.world).forEach(b=>{
-    if(b!==hand)World.remove(engine.world,b);
+    if(![bike,wheelL,wheelR].includes(b)) World.remove(engine.world,b);
   });
-  World.remove(engine.world,hand);
-  hand=createHand();
-  World.add(engine.world,hand);
-  block=createBlock();
-  over=false;setScore(0);
-  document.getElementById('over').style.display='none';
+  over=false; overEl.style.display='none'; setScore(0); spawn(); if(AC){ stopBGM(); startBGM(); }
 }
-
-/* ========== 手のアニメーション ========== */
-let handPhase=0;
-Events.on(engine,'beforeUpdate',()=>{
-  if(over)return;
-  handPhase+=0.02;
-  const scale=1+Math.sin(handPhase)*0.05;
-  Body.scale(hand,scale,1,hand.position);
+/* 追従 */
+stage.addEventListener('pointermove',e=>{
+  const r=stage.getBoundingClientRect();
+  followX = Math.max(30, Math.min(W-30, (e.clientX - r.left) * (W/r.width)));
 });
-
-/* ========== 衝突処理 ========== */
-Events.on(engine,'collisionStart',e=>{
-  for(let p of e.pairs){
-    if((p.bodyA===block&&p.bodyB===hand)||(p.bodyB===block&&p.bodyA===hand)){
-      SFX.catch();
-      setScore(score+1);
-      World.remove(engine.world,block);
-      block=createBlock();
-    }
-  }
-});
-Events.on(engine,'afterUpdate',()=>{
-  if(block.position.y>H+50&&!over){
-    over=true;
-    document.getElementById('over').style.display='flex';
-    SFX.over();
-  }
-});
-
-/* ========== 入力 ========== */
-canvas.addEventListener('pointerdown',()=>startAudio());
+/* 入力 */
+document.getElementById('drop').onclick=drop;
 document.getElementById('retry').onclick=reset;
+stage.addEventListener('pointerdown',e=>{ startAudio(); }); // 初タップでBGM開始
+stage.addEventListener('pointerup',e=>{ if(cur) drop(); }); // 画面タップでも落とす
 
-/* ========== 初期化 ========== */
-setScore(0);
+/* 着地音 */
+Events.on(engine,'collisionStart',ev=>{
+  ev.pairs.forEach(p=>{
+    const a=p.bodyA, b=p.bodyB;
+    if((a===cur||b===cur) || (!a.isStatic && (b===bike||b===wheelL||b===wheelR)) || (!b.isStatic && (a===bike||a===wheelL||a===wheelR))){
+      SFX.land();
+    }
+  });
+});
+
+/* ゲームオーバー判定：画面下に落下したら */
+Events.on(engine,'afterUpdate',()=>{
+  if(over) return;
+  const fall = Composite.allBodies(engine.world).find(b=>!b.isStatic && b.position.y>H-10);
+  if(fall){ over=true; overEl.style.display='grid'; SFX.over(); }
+  if(cur && cur.isStatic){ Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.25,y:cur.position.y}); }
+});
+
+/* スタート */
+preload(SPRITES).then(list=>{ photos=list; setScore(0); spawn(); });
 </script>
 </body>
 </html>
