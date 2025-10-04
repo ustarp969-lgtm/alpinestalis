@@ -1,216 +1,183 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Alpinestalis – Photo Tetris</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>Photo Balance – 6枚バランスゲーム</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#6ec3ff}
-  #wrap{display:flex;justify-content:center;align-items:center;height:100%}
-  canvas{background:rgba(0,0,0,.25);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
-  #ui{position:fixed;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;color:#fff;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
-  #controls{position:fixed;left:0;right:0;bottom:12px;display:flex;flex-direction:column;gap:10px;align-items:center;z-index:6}
-  .row{display:flex;gap:10px}
-  .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-  .btn:active{transform:translateY(1px)}
-  @media (min-width:760px){#controls{display:none}} /* PCではボタン隠す */
+  :root { --bg:#0b1020; --fg:#fff; --panel:#121a30; --accent:#32e0a5; }
+  html,body{margin:0;height:100%;background:linear-gradient(#1a2953,#0b1020);}
+  #hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:10px;align-items:center;z-index:5;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;text-shadow:0 2px 6px rgba(0,0,0,.5)}
+  #score{font-weight:900}
+  #msg{margin-left:auto;opacity:.9}
+  #btns{display:flex;gap:8px}
+  button{border:none;border-radius:10px;padding:10px 14px;font-weight:800}
+  #dropBtn{background:var(--accent);color:#053}
+  #retryBtn{background:#24374f;color:#fff}
+  #stage{display:block;margin:0 auto;touch-action:none}
+  #panel{position:fixed;bottom:10px;left:0;right:0;display:flex;justify-content:center;z-index:5}
+  #hint{color:#fff;opacity:.85;font-family:system-ui,-apple-system,sans-serif}
 </style>
 </head>
 <body>
-<div id="ui">
+<div id="hud">
   <div id="score">SCORE 0</div>
-  <div id="hint">← →：移動 / ↑：回転 / ↓：ソフト / Space：ハード（画面タップでBGM）</div>
-</div>
-
-<div id="wrap">
-  <canvas id="cv" width="300" height="600" aria-label="tetris field"></canvas>
-</div>
-
-<!-- モバイル操作ボタン -->
-<div id="controls">
-  <div class="row">
-    <button id="left"  class="btn">←</button>
-    <button id="rot"   class="btn">⟳</button>
-    <button id="right" class="btn">→</button>
-  </div>
-  <div class="row">
-    <button id="soft" class="btn">⇩</button>
-    <button id="drop" class="btn" style="min-width:160px">⤓ ハードドロップ</button>
+  <div id="msg">左右にスライド → DROPで落とす</div>
+  <div id="btns">
+    <button id="dropBtn">DROP</button>
+    <button id="retryBtn">Retry</button>
   </div>
 </div>
+<canvas id="stage" width="420" height="720" aria-label="balance-stage"></canvas>
+<div id="panel"><div id="hint">指/マウスで左右移動・タップ/クリックで落下</div></div>
 
-<!-- 任意：内蔵BGM（クリックで開始） -->
+<!-- Matter.js 物理エンジン -->
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-let actx=null, master=null, timer=null;
-function startBGM(){
-  if(actx) return;
-  const AC = window.AudioContext||window.webkitAudioContext;
-  actx = new AC();
-  master = actx.createGain(); master.gain.value=.2; master.connect(actx.destination);
-  const base=220, seq=[0,7,12,14,12,7,5,3, 0,5,7,9,7,5,3,2];
-  let i=0;
-  function beep(f,d=.25,g=.15,t='triangle'){
-    const o=actx.createOscillator(), gn=actx.createGain();
-    o.type=t; o.frequency.value=f; o.connect(gn); gn.connect(master);
-    const now=actx.currentTime;
-    gn.gain.setValueAtTime(0.0001,now);
-    gn.gain.exponentialRampToValueAtTime(g,now+.02);
-    gn.gain.exponentialRampToValueAtTime(0.0001,now+d);
-    o.start(); o.stop(now+d+.02);
+/* ================= 設定（ここだけ見ればOK） ================= */
+// 写真ファイル名（リポジトリ直下に置く）
+// 既存の I〜S をそのまま使う設定。1.png〜6.png にしたい場合は下の行を差し替え。
+const FILES = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
+// const FILES = ["1.png","2.png","3.png","4.png","5.png","6.png"]; // ←この形で使いたい場合
+
+const CANVAS_W = 420, CANVAS_H = 720;
+const BASE_Y   = 560;  // 台の高さ
+const BASE_W   = 260, BASE_H = 18;
+const MAX_PHOTO_W = 150; // 1枚の最大幅（元画像の比率は維持）
+const GRAVITY_Y = 1.0;
+
+/* ================= 前処理：画像読み込み ================= */
+function preload(srcs){
+  return Promise.all(srcs.map(s=>new Promise(res=>{
+    const im=new Image(); im.onload=()=>res({src:s, w:im.naturalWidth, h:im.naturalHeight, im}); im.onerror=()=>res({src:s, w:128, h:128, im:null}); im.src=s+"?v=1";
+  })));
+}
+
+/* ================== 物理世界の準備 ================== */
+const {Engine, Render, Runner, World, Bodies, Body, Events, Composite} = Matter;
+const engine = Engine.create({gravity:{x:0, y:GRAVITY_Y}});
+const world  = engine.world;
+
+const canvas = document.getElementById('stage');
+const render = Render.create({
+  canvas,
+  engine,
+  options:{
+    width: CANVAS_W, height: CANVAS_H,
+    wireframes: false,
+    background: 'transparent',
+    pixelRatio: Math.min(window.devicePixelRatio, 2)
   }
-  function loop(){
-    const f=base*Math.pow(2, seq[i%seq.length]/12);
-    beep(f,.28,.14,'triangle'); setTimeout(()=>beep(f*1.5,.18,.1,'sine'),40);
-    i++; timer=setTimeout(loop,300);
-  }
-  loop();
-}
-addEventListener('click', startBGM, {once:true});
-</script>
+});
+Render.run(render);
+const runner = Runner.create(); Runner.run(runner, engine);
 
-<script>
-/* ========= テトリス本体 ========= */
-const COLS=10, ROWS=20, SIZE=30;
-const cv=document.getElementById("cv"), cx=cv.getContext("2d");
-cv.width=COLS*SIZE; cv.height=ROWS*SIZE;
+/* === ステージ（台と壁） === */
+const ground = Bodies.rectangle(CANVAS_W/2, BASE_Y, BASE_W, BASE_H, {isStatic:true, restitution:0.1,
+  render:{fillStyle:"#2ad4a6"}});
+const pegL   = Bodies.rectangle(CANVAS_W/2 - BASE_W/2 - 18, BASE_Y-24, 12, 60, {isStatic:true, render:{fillStyle:"#183"}}); // ガード
+const pegR   = Bodies.rectangle(CANVAS_W/2 + BASE_W/2 + 18, BASE_Y-24, 12, 60, {isStatic:true, render:{fillStyle:"#183"}});
+const wallL  = Bodies.rectangle(-20, CANVAS_H/2, 40, CANVAS_H, {isStatic:true, render:{visible:false}});
+const wallR  = Bodies.rectangle(CANVAS_W+20, CANVAS_H/2, 40, CANVAS_H, {isStatic:true, render:{visible:false}});
+const floor  = Bodies.rectangle(CANVAS_W/2, CANVAS_H+80, CANVAS_W, 160, {isStatic:true, render:{visible:false}}); // 落下検知用
+World.add(world, [ground, pegL, pegR, wallL, wallR, floor]);
 
-let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
-let score=0;
+/* ================== ゲーム管理 ================== */
+let photos = [];       // 読み込んだ画像情報
+let queueIndex = 0;    // 次に出す写真
+let current = null;    // いま操作中のボディ
+let followingX = CANVAS_W/2; // 指/マウス位置
+let score = 0;         // 積めた枚数
+const scoreEl = document.getElementById('score');
+const msgEl   = document.getElementById('msg');
 
-/* 形（6種：I,O,T,L,J,S） */
-const SHAPES = {
-  I: [[1,1,1,1]],
-  O: [[1,1],[1,1]],
-  T: [[0,1,0],[1,1,1]],
-  L: [[1,0,0],[1,1,1]],
-  J: [[0,0,1],[1,1,1]],
-  S: [[0,1,1],[1,1,0]]
-};
-const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
-const TYPES = Object.keys(SHAPES);
+function updateScore(n){ score = n; scoreEl.textContent = "SCORE " + score; }
 
-/* —— 画像ブロック（I.PNG 等が直下にあれば自動使用） —— */
-const BLOCK_IMG_SRC = { I:"I.PNG", O:"O.PNG", T:"T.PNG", L:"L.PNG", J:"J.PNG", S:"S.PNG" };
-const BLOCK_IMG = {};
-for (const k in BLOCK_IMG_SRC) {
-  const im = new Image();
-  im.src = BLOCK_IMG_SRC[k] + "?v=1"; // キャッシュ避け
-  BLOCK_IMG[k] = im;
-}
-
-/* ピース生成（ランダム） */
-function newPiece(){
-  const t=TYPES[(Math.random()*TYPES.length)|0];
-  return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0};
-}
-let cur=newPiece();
-
-/* 回転・衝突 */
-function rot(m){
-  const h=m.length,w=m[0].length;
-  const r=[...Array(w)].map(()=>Array(h).fill(0));
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
-  return r;
-}
-function coll(m,px,py){
-  for(let y=0;y<m.length;y++)for(let x=0;x<m[0].length;x++){
-    if(!m[y][x]) continue;
-    const nx=px+x, ny=py+y;
-    if(nx<0||nx>=COLS||ny>=ROWS) return true;
-    if(ny>=0 && board[ny][nx]) return true;
-  }
-  return false;
+function makeBodyFromPhoto(p, x, y, isStatic=true){
+  // 画像の比率を維持しつつ、最大幅MAX_PHOTO_Wに収める
+  const ratio = p.w ? (p.h/p.w) : 1;
+  const W = Math.min(MAX_PHOTO_W, p.w || MAX_PHOTO_W);
+  const H = W * ratio;
+  const body = Bodies.rectangle(x, y, W, H, {
+    isStatic,
+    restitution: 0.05,
+    friction: 0.8,
+    frictionStatic: 0.9,
+    render: p.im ? { sprite:{ texture:p.src, xScale: W/(p.w||W), yScale: H/(p.h||H) } }
+                 : { fillStyle:"#ccc", strokeStyle:"#888", lineWidth:1 }
+  });
+  return body;
 }
 
-/* 固定・ライン消去・次ピース */
-function merge(){
-  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++){
-    if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
-  }
-  for(let y=ROWS-1;y>=0;y--){
-    if(board[y].every(v=>v)){
-      board.splice(y,1);
-      board.unshift(Array(COLS).fill(0));
-      score+=100; y++;
-    }
-  }
-  document.getElementById('score').textContent = `SCORE ${score}`;
-  cur = newPiece();
-  if(coll(cur.m,cur.x,cur.y)){ // Game Over
-    board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
-    score = 0;
-    document.getElementById('score').textContent = 'SCORE 0';
-  }
+function spawnNext(){
+  const p = photos[queueIndex % photos.length];
+  queueIndex++;
+  const x = followingX;
+  current = makeBodyFromPhoto(p, x, 80, true); // 最初は静止体→左右に追従
+  World.add(world, current);
 }
 
-/* 描画（画像優先・無ければ色） */
-function drawCell(x,y,t){
-  const gx=x*SIZE, gy=y*SIZE, im=BLOCK_IMG[t];
-  if (im && im.complete && im.naturalWidth){
-    cx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);
-  } else {
-    cx.fillStyle = COLORS[t]||"#888";
-    cx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
-  }
-}
-function render(){
-  cx.clearRect(0,0,cv.width,cv.height);
-  // 盤面
-  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
-  // 現在ピース
-  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
+function dropCurrent(){
+  if(!current) return;
+  Body.setStatic(current, false); // 落とす！
+  current = null;
+  updateScore(score + 1);
+  // 少し待ってから次を生成
+  setTimeout(()=>spawnNext(), 600);
 }
 
-/* ====== 落下ループ（重要：これが無いと落ちない） ====== */
-let last=0, acc=0;
-function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else merge(); }
-function loop(ts){
-  if(!last) last=ts;
-  const dt = ts - last;
-  last = ts;
-
-  const gravity = 520; // ミリ秒相当
-  acc += dt;
-  if(acc >= gravity){
-    acc = 0;
-    stepDown();  // ← ここで1マス落とす
-  }
-
-  render();
-  requestAnimationFrame(loop); // ← これがゲームを回し続ける
+/* ========== 入力（スマホ/PC共通）========== */
+function canvasXFromEvent(e){
+  const rect = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  return Math.max(30, Math.min(CANVAS_W-30, (clientX - rect.left) * (CANVAS_W/rect.width)));
 }
-requestAnimationFrame(loop);     // ← ★ 起動トリガー（大事！）
-
-/* ====== 操作 ====== */
-addEventListener('keydown',e=>{
-  if(e.code==='ArrowLeft' && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
-  if(e.code==='ArrowRight'&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
-  if(e.code==='ArrowDown') stepDown();
-  if(e.code==='ArrowUp'){ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; }
-  if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
+canvas.addEventListener('pointermove', e=>{
+  followingX = canvasXFromEvent(e);
+});
+canvas.addEventListener('pointerdown', e=>{
+  followingX = canvasXFromEvent(e);
+  // 画面タップ/クリックでDROP
+  dropCurrent();
+});
+document.getElementById('dropBtn').addEventListener('click', dropCurrent);
+document.getElementById('retryBtn').addEventListener('click', ()=>{
+  // 全ボディをリセット（台と壁以外を削除）
+  const toRemove = Composite.allBodies(world).filter(b=>![ground,pegL,pegR,wallL,wallR,floor].includes(b));
+  toRemove.forEach(b=>World.remove(world,b));
+  score=0; updateScore(0); queueIndex=0; current=null; spawnNext();
 });
 
-/* モバイル：長押しリピート */
-function holdRepeat(fn,initial=180,every=90){ let t=null,i=null; return {
-  start(){ fn(); t=setTimeout(()=>{i=setInterval(fn,every);},initial); },
-  end(){ clearTimeout(t); clearInterval(i); t=i=null; }
-};}
-const repL=holdRepeat(()=>{ if(!coll(cur.m,cur.x-1,cur.y)) cur.x--; });
-const repR=holdRepeat(()=>{ if(!coll(cur.m,cur.x+1,cur.y)) cur.x++; });
-const repD=holdRepeat(()=> stepDown(), 120, 60);
-function bind(el,onDown,onUp){ const d=()=>onDown&&onDown(), u=()=>onUp&&onUp();
-  el.addEventListener('touchstart',d,{passive:true});
-  el.addEventListener('touchend',u,{passive:true});
-  el.addEventListener('touchcancel',u,{passive:true});
-  el.addEventListener('mousedown',d);
-  el.addEventListener('mouseup',u);
-  el.addEventListener('mouseleave',u);
-}
-bind(document.getElementById('left'), ()=>repL.start(), ()=>repL.end());
-bind(document.getElementById('right'),()=>repR.start(), ()=>repR.end());
-bind(document.getElementById('rot'),  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
-bind(document.getElementById('soft'), ()=>repD.start(), ()=>repD.end());
-bind(document.getElementById('drop'), ()=>{ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); });
+/* ====== フォロー制御（静止中の現在ブロックを指に追従させる） ====== */
+Events.on(engine, 'beforeUpdate', ()=>{
+  if(current && current.isStatic){
+    // Xのみ追従（Yは固定）、左右端で台の上に収まるように少し鈍く追従
+    const dx = followingX - current.position.x;
+    Body.setPosition(current, {x: current.position.x + dx * 0.25, y: current.position.y});
+  }
+});
+
+/* ====== ゲームオーバー判定 ====== */
+Events.on(engine, 'afterUpdate', ()=>{
+  // 台より下に落ちたブロックがあればアウト
+  const bodies = Composite.allBodies(world);
+  const fallen = bodies.find(b => !b.isStatic && b.position.y > CANVAS_H + 40);
+  if(fallen){
+    msgEl.textContent = "GAME OVER… Retryを押してね";
+    // これ以上落とせないように current を無効化
+    current = null;
+  } else {
+    msgEl.textContent = "左右にスライド → DROPで落とす";
+  }
+});
+
+/* ================== スタートアップ ================== */
+preload(FILES).then(list=>{
+  photos = list;         // [{src,w,h,im},...]
+  Render.lookAt(render, { min:{x:0,y:0}, max:{x:CANVAS_W,y:CANVAS_H} });
+  updateScore(0);
+  spawnNext();
+});
 </script>
 </body>
 </html>
