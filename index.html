@@ -1,25 +1,46 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Alpinestars Tetris</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Alpinestars Tetris (Touch + Keyboard)</title>
 <style>
-  body { margin:0; display:flex; justify-content:center; align-items:center; height:100vh; background:#0b1020; }
-  canvas { background:#111; box-shadow:0 0 20px rgba(0,0,0,0.6); }
+  html,body{margin:0;height:100%;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
+  #wrap{display:flex;justify-content:center;align-items:center;height:100%}
+  canvas{background:#0a1224;box-shadow:0 10px 30px rgba(0,0,0,.5);border-radius:12px}
+  #ui{position:fixed;top:8px;left:8px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6)}
+  #ui small{opacity:.8}
+  /* タッチ操作ゾーン（透明だけど薄く見える） */
+  #pads{position:fixed;inset:0;pointer-events:none}
+  .pad{pointer-events:auto;position:absolute}
+  #padL{left:0;bottom:0;width:33vw;height:35vh;background:rgba(255,255,255,.04)}
+  #padR{right:0;bottom:0;width:33vw;height:35vh;background:rgba(255,255,255,.06)}
+  #padRot{left:0;top:0;width:100vw;height:30vh;background:rgba(255,255,255,.03)}
+  #padDrop{left:33vw;bottom:0;width:34vw;height:35vh;background:rgba(255,255,255,.02)}
 </style>
 </head>
 <body>
-<canvas id="cv" width="300" height="600"></canvas>
+<div id="wrap"><canvas id="cv" width="300" height="600"></canvas></div>
+<div id="ui">
+  <div id="score">SCORE 0</div>
+  <small>← →：移動 / ↑：回転 / space：落下（スマホは画面左右/上タップ）</small>
+</div>
+<div id="pads">
+  <div id="padL" class="pad" title="Left"></div>
+  <div id="padR" class="pad" title="Right"></div>
+  <div id="padRot" class="pad" title="Rotate"></div>
+  <div id="padDrop" class="pad" title="Drop"></div>
+</div>
 
 <script>
-// ===== 設定 =====
+// ===== 盤面設定 =====
 const COLS=10, ROWS=20, SIZE=30;
 const cv=document.getElementById("cv"), cx=cv.getContext("2d");
+cv.width = COLS*SIZE; cv.height = ROWS*SIZE;
 let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
 let score=0;
 
-// ===== ブロック定義（Z無し6種類） =====
+// ===== 形（I,O,T,L,J,S の6種） =====
 const SHAPES = {
   I: [[1,1,1,1]],
   O: [[1,1],[1,1]],
@@ -29,28 +50,40 @@ const SHAPES = {
   S: [[0,1,1],[1,1,0]]
 };
 const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
+const NAMES = Object.keys(SHAPES);
 
-let pieces = Object.keys(SHAPES);
-function newPiece(){
-  let t=pieces[Math.floor(Math.random()*pieces.length)];
-  return {t, m:SHAPES[t], x:3, y:0};
+// ===== 画像（任意）: img/I.png などがあれば自動使用 =====
+const IMG = {};
+function loadImages(){
+  return Promise.all(NAMES.map(n=>new Promise(res=>{
+    const im=new Image();
+    im.onload=()=>{ IMG[n]=im; res(); };
+    im.onerror=()=>{ IMG[n]=null; res(); };
+    im.src = `img/${n}.png`;
+  })));
 }
-let cur=newPiece();
+
+// ===== ピース生成 =====
+function newPiece(){
+  const t = NAMES[(Math.random()*NAMES.length)|0];
+  return { t, m: SHAPES[t].map(r=>r.slice()), x:3, y:0 };
+}
+let cur = newPiece();
 
 // ===== 回転 =====
 function rot(m){
   const h=m.length, w=m[0].length;
   const r=[...Array(w)].map(()=>Array(h).fill(0));
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
   return r;
 }
 
 // ===== 衝突判定 =====
 function coll(m, px, py){
-  for(let y=0;y<m.length;y++)for(let x=0;x<m[0].length;x++){
+  for(let y=0;y<m.length;y++) for(let x=0;x<m[0].length;x++){
     if(!m[y][x]) continue;
     const nx=px+x, ny=py+y;
-    if(nx<0||nx>=COLS||ny>=ROWS) return true;
+    if(nx<0 || nx>=COLS || ny>=ROWS) return true;
     if(ny>=0 && board[ny][nx]) return true;
   }
   return false;
@@ -58,51 +91,18 @@ function coll(m, px, py){
 
 // ===== 固定 & ライン消去 =====
 function merge(){
-  cur.m.forEach((r,y)=>r.forEach((v,x)=>{ if(v) board[cur.y+y][cur.x+x]=cur.t; }));
+  for(let y=0;y<cur.m.length;y++) for(let x=0;x<cur.m[0].length;x++){
+    if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
+  }
+  // ライン消し
   for(let y=ROWS-1;y>=0;y--){
     if(board[y].every(v=>v)){
       board.splice(y,1);
       board.unshift(Array(COLS).fill(0));
-      score+=100;
+      score += 100;
+      document.getElementById('score').textContent = `SCORE ${score}`;
       y++;
     }
   }
-  cur=newPiece();
-  if(coll(cur.m,cur.x,cur.y)){ board=Array.from({length:ROWS},()=>Array(COLS).fill(0)); score=0; }
-}
-
-// ===== 描画 =====
-function draw(){
-  cx.fillStyle="#111"; cx.fillRect(0,0,cv.width,cv.height);
-  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
-    if(board[y][x]) drawCell(x,y,board[y][x]);
-  }
-  cur.m.forEach((r,y)=>r.forEach((v,x)=>{ if(v) drawCell(cur.x+x,cur.y+y,cur.t); }));
-  cx.fillStyle="#fff"; cx.fillText("SCORE: "+score,10,20);
-}
-function drawCell(x,y,t){
-  cx.fillStyle=COLORS[t]||"#888";
-  cx.fillRect(x*SIZE,y*SIZE,SIZE-1,SIZE-1);
-}
-
-// ===== ゲームループ =====
-let drop=0;
-function loop(){
-  drop++;
-  if(drop>30){ drop=0; if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else merge(); }
-  draw();
-  requestAnimationFrame(loop);
-}
-loop();
-
-// ===== 操作 =====
-addEventListener("keydown",e=>{
-  if(e.code==="ArrowLeft" && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
-  if(e.code==="ArrowRight"&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
-  if(e.code==="ArrowDown" && !coll(cur.m,cur.x,cur.y+1)) cur.y++;
-  if(e.code==="ArrowUp"){ let r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; }
-  if(e.code==="Space"){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
-});
-</script>
-</body>
-</html>
+  cur = newPiece();
+  if(coll(cur.m,cur.x,cur.y)){ // ゲームオーバー
