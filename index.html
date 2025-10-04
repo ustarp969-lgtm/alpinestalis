@@ -3,52 +3,47 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Alpinestalis – Photo Tetris</title>
+<title>Alpinestalis – Sky Tetris</title>
 <style>
-  html,body{margin:0;height:100%;background:#0e1220;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
-  #wrap{display:flex;justify-content:center;align-items:center;height:100%}
-  canvas{background:#0a1428;box-shadow:0 10px 30px rgba(0,0,0,.5);border-radius:12px}
-  #ui{position:fixed;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
-  #hint{font-size:12px;opacity:.8}
-  #controls{position:fixed;left:0;right:0;bottom:12px;display:flex;flex-direction:column;gap:10px;align-items:center;z-index:6}
-  .row{display:flex;gap:10px}
-  .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-  .btn:active{transform:translateY(1px)}
-  @media (min-width:760px){#controls{display:none}} /* PCではボタン非表示 */
+  html,body {
+    margin:0;
+    height:100%;
+    overflow:hidden;
+  }
+  body {
+    background: url("sky.png") no-repeat center center fixed;
+    background-size: cover; /* 空のイラストを全画面に敷く */
+  }
+  #wrap {display:flex;justify-content:center;align-items:center;height:100%}
+  canvas {background: rgba(0,0,0,0.3);border-radius:12px}
+  #ui {
+    position:fixed;top:10px;left:12px;right:12px;
+    display:flex;justify-content:space-between;align-items:center;
+    color:#fff;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);
+  }
 </style>
 </head>
 <body>
 <div id="ui">
   <div id="score">SCORE 0</div>
-  <div id="hint">← →：移動 / ↑：回転 / ↓：ソフト / Space：ハード</div>
 </div>
 <div id="wrap">
-  <canvas id="cv" width="300" height="600" aria-label="tetris field"></canvas>
+  <canvas id="cv" width="300" height="600"></canvas>
 </div>
 
-<!-- モバイル操作 -->
-<div id="controls">
-  <div class="row">
-    <button id="left"  class="btn">←</button>
-    <button id="rot"   class="btn">⟳</button>
-    <button id="right" class="btn">→</button>
-  </div>
-  <div class="row">
-    <button id="soft" class="btn">⇩</button>
-    <button id="drop" class="btn" style="min-width:160px">⤓ ハードドロップ</button>
-  </div>
-</div>
+<!-- BGM -->
+<audio id="bgm" src="bgm.mp3" loop></audio>
 
 <script>
 /* ===== 基本設定 ===== */
 const COLS=10, ROWS=20, SIZE=30;
-const cv=document.getElementById("cv"), cx=cv.getContext("2d");
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 cv.width=COLS*SIZE; cv.height=ROWS*SIZE;
 
 let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
 let score=0;
 
-/* ===== 形（I,O,T,L,J,S ※ZはSを流用） ===== */
+/* ===== 形と色 ===== */
 const SHAPES = {
   I: [[1,1,1,1]],
   O: [[1,1],[1,1]],
@@ -60,8 +55,7 @@ const SHAPES = {
 const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
 const TYPES = Object.keys(SHAPES);
 
-/* ===== 画像マッピング（同階層のPNGを使用） =====
-   画像を img/ に置いた場合は "img/I.PNG" のように書き換えてね。 */
+/* ===== ブロック画像 ===== */
 const BLOCK_IMG_SRC = {
   I: "I.PNG",
   O: "O.PNG",
@@ -70,7 +64,6 @@ const BLOCK_IMG_SRC = {
   J: "J.PNG",
   S: "S.PNG"
 };
-/* 画像の事前ロード（毎回newしない） */
 const BLOCK_IMG = {};
 for (const k in BLOCK_IMG_SRC) {
   const im = new Image();
@@ -122,26 +115,20 @@ function merge(){
   }
 }
 
-/* ===== 描画（画像があれば画像、なければ色） ===== */
+/* ===== 描画 ===== */
 function drawCell(x,y,t){
   const gx=x*SIZE, gy=y*SIZE;
   const im = BLOCK_IMG[t];
   if (im && im.complete && im.naturalWidth) {
-    cx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);
+    ctx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);
   } else {
-    cx.fillStyle = COLORS[t]||"#888";
-    cx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
+    ctx.fillStyle = COLORS[t]||"#888";
+    ctx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
   }
 }
 function render(){
-  cx.clearRect(0,0,cv.width,cv.height);
-  // 背景グリッド
-  cx.strokeStyle='rgba(255,255,255,.06)';
-  for(let x=0;x<=COLS;x++){ cx.beginPath(); cx.moveTo(x*SIZE,0); cx.lineTo(x*SIZE,ROWS*SIZE); cx.stroke(); }
-  for(let y=0;y<=ROWS;y++){ cx.beginPath(); cx.moveTo(0,y*SIZE); cx.lineTo(COLS*SIZE,y*SIZE); cx.stroke(); }
-  // 盤面
+  ctx.clearRect(0,0,cv.width,cv.height);
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
-  // 現在ピース
   for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
 }
 
@@ -154,7 +141,7 @@ function loop(ts){
   render(); requestAnimationFrame(loop);
 }
 
-/* ===== キー操作 ===== */
+/* ===== 操作 ===== */
 addEventListener('keydown',e=>{
   if(e.code==='ArrowLeft' && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
   if(e.code==='ArrowRight'&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
@@ -163,39 +150,9 @@ addEventListener('keydown',e=>{
   if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
 });
 
-/* ===== タッチ操作（長押しリピート） ===== */
-function holdRepeat(fn,initial=180,every=90){
-  let t=null, i=null;
-  return {
-    start(){ fn(); t=setTimeout(()=>{i=setInterval(fn,every);},initial); },
-    end(){ clearTimeout(t); clearInterval(i); t=i=null; }
-  };
-}
-const leftBtn = document.getElementById('left');
-const rightBtn= document.getElementById('right');
-const rotBtn  = document.getElementById('rot');
-const softBtn = document.getElementById('soft');
-const dropBtn = document.getElementById('drop');
-
-const repL=holdRepeat(()=>{ if(!coll(cur.m,cur.x-1,cur.y)) cur.x--; });
-const repR=holdRepeat(()=>{ if(!coll(cur.m,cur.x+1,cur.y)) cur.x++; });
-const repD=holdRepeat(()=> stepDown(), 120, 60);
-
-function bindPress(el,onDown,onUp){
-  const down = ()=>onDown&&onDown();
-  const up   = ()=>onUp&&onUp();
-  el.addEventListener('touchstart',down,{passive:true});
-  el.addEventListener('touchend',up,{passive:true});
-  el.addEventListener('touchcancel',up,{passive:true});
-  el.addEventListener('mousedown',down);
-  el.addEventListener('mouseup',up);
-  el.addEventListener('mouseleave',up);
-}
-bindPress(leftBtn, ()=>repL.start(), ()=>repL.end());
-bindPress(rightBtn,()=>repR.start(), ()=>repR.end());
-bindPress(rotBtn,  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
-bindPress(softBtn, ()=>repD.start(), ()=>repD.end());
-bindPress(dropBtn, ()=>{ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); });
+/* ===== BGM再生 ===== */
+const bgm = document.getElementById("bgm");
+document.body.addEventListener("click", ()=>{ bgm.play(); }, {once:true});
 
 /* ===== スタート ===== */
 requestAnimationFrame(loop);
