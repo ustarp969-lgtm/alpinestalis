@@ -1,42 +1,218 @@
-<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Balance Safe</title>
-<style>html,body{margin:0;height:100%;background:linear-gradient(#dff3ff,#fff0fb)}
-#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;
-font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-#stage{display:block;margin:0 auto;touch-action:none}
-button{border:none;border-radius:10px;padding:8px 14px;font-weight:700}
-#drop{background:#ff6394;color:#fff} #retry{background:#75c4ff}</style></head><body>
-<div id="hud"><div id="score">SCORE 0</div>
-<div><button id="drop">DROP</button> <button id="retry">Retry</button></div></div>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>ustarp969GAME – Rider Balance</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;}
+  canvas{display:block;margin:0 auto;touch-action:none}
+  #hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:center;
+       font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#013;z-index:10}
+  button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
+  #drop{background:#ff5c97;color:#fff;margin-right:6px}
+  #retry{background:#79c6ff;color:#003}
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="score">SCORE 0</div>
+  <div>
+    <button id="drop">DROP</button>
+    <button id="retry">Retry</button>
+  </div>
+</div>
 <canvas id="stage" width="420" height="720"></canvas>
+
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-const FILES=["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"]; // なければ色で描画
-const MAX_W=70, W=420,H=720; const GY=0.95;
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite}=Matter;
-const eng=Engine.create({gravity:{x:0,y:GY}}), world=eng.world;
-const cvs=document.getElementById('stage');
-const ren=Render.create({canvas:cvs,engine:eng,options:{width:W,height:H,wireframes:false,background:'transparent'}});
-Render.run(ren); Runner.run(Runner.create(),eng);
-// 必ず見える台（矩形）
-const platform=Bodies.rectangle(W/2,600,260,18,{isStatic:true,render:{fillStyle:"#222"}});
-const wallL=Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}});
-const wallR=Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}});
-World.add(world,[platform,wallL,wallR]);
-// 画像プリロード
-function preload(list){return Promise.all(list.map(s=>new Promise(r=>{const im=new Image();
-im.onload=()=>r({src:s,w:im.naturalWidth,h:im.naturalHeight,im}); im.onerror=()=>r({src:s,w:100,h:100,im:null}); im.src=s+"?v=1";})))}
-let imgs=[],qi=0,cur=null,follow=W/2,score=0,over=false;
-function make(p,x,y,st=true){const r=p.w? p.h/p.w:1, w=Math.min(MAX_W,p.w||MAX_W), h=w*r;
-return Bodies.rectangle(x,y,w,h,{isStatic:st,restitution:.08,friction:.7,
-render:p.im?{sprite:{texture:p.src,xScale:w/(p.w||w),yScale:h/(p.h||h)}}:{fillStyle:"#ffc6ef"}})}
-function spawn(){ if(over) return; const p=imgs[qi++%imgs.length]; cur=make(p,follow,80,true); World.add(world,cur); }
-function drop(){ if(!cur||over) return; Body.setStatic(cur,false); cur=null; document.getElementById('score').textContent="SCORE "+(++score); setTimeout(spawn,500); }
-cvs.addEventListener('pointermove',e=>{const r=cvs.getBoundingClientRect(); follow=Math.max(30,Math.min(W-30,(e.clientX-r.left)*(W/r.width)));});
-cvs.addEventListener('pointerdown',drop); document.getElementById('drop').onclick=drop;
-document.getElementById('retry').onclick=()=>{Composite.allBodies(world).forEach(b=>{if(![platform,wallL,wallR].includes(b))World.remove(world,b)}); qi=0;score=0;over=false;document.getElementById('score').textContent="SCORE 0";spawn()};
-Events.on(eng,'beforeUpdate',()=>{ if(cur&&cur.isStatic){ Body.setPosition(cur,{x:cur.position.x+(follow-cur.position.x)*0.25,y:cur.position.y}); }});
-Events.on(eng,'afterUpdate',()=>{ const fell=Composite.allBodies(world).find(b=>!b.isStatic&&b.position.y>680); if(fell){over=true;} });
-preload(FILES).then(list=>{imgs=list; spawn();});
-</script></body></html>
+/* ========= 設定 ========= */
+const CANVAS_W = 420, CANVAS_H = 720;
+const GRAVITY_Y = 0.95;
+const MAX_PHOTO_W = 56;          // ★ さらに小さく
+const ASSETS = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"]; // 画像が無い場合は色塗りで出す
+
+/* ========= 背景描画（グラデ＋雲＋ロゴ） ========= */
+const bgCanvas = document.getElementById('stage');
+const bgCtx = bgCanvas.getContext('2d');
+function drawBackground(t=0){
+  // 空のグラデ
+  const g = bgCtx.createLinearGradient(0,0,0,CANVAS_H);
+  g.addColorStop(0,"#cfeeff"); g.addColorStop(0.55,"#e7f6ff"); g.addColorStop(1,"#ffe6f2");
+  bgCtx.fillStyle=g; bgCtx.fillRect(0,0,CANVAS_W,CANVAS_H);
+  // ふわふわ雲
+  bgCtx.globalAlpha=0.6;
+  for(let i=0;i<5;i++){
+    const x = (t*12 + i*120) % (CANVAS_W+160) - 80;
+    const y = 60 + i*45;
+    bgCtx.beginPath();
+    bgCtx.fillStyle="#ffffff";
+    bgCtx.ellipse(x,y,38,18,0,0,Math.PI*2);
+    bgCtx.ellipse(x+24,y+6,26,12,0,0,Math.PI*2);
+    bgCtx.ellipse(x-22,y+8,22,10,0,0,Math.PI*2);
+    bgCtx.fill();
+  }
+  bgCtx.globalAlpha=1;
+
+  // 透かしロゴ
+  bgCtx.save();
+  bgCtx.translate(CANVAS_W/2, CANVAS_H-42);
+  bgCtx.font="900 22px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif";
+  bgCtx.fillStyle="rgba(0,0,0,0.10)";
+  bgCtx.textAlign="center";
+  bgCtx.fillText("ustarp969GAME", 0, 0);
+  bgCtx.restore();
+}
+
+/* ========= BGM（ワンタップで開始） ========= */
+let actx=null, master=null;
+function startBgm(){
+  if(actx) return;
+  const AC = window.AudioContext||window.webkitAudioContext;
+  actx = new AC();
+  master = actx.createGain(); master.gain.value=.12; master.connect(actx.destination);
+
+  const base=261.63; // C4
+  const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5];
+  let i=0;
+  function note(semi,len=.38,vol=.15,type='triangle'){
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value=base*Math.pow(2,semi/12);
+    o.connect(g); g.connect(master);
+    const t=actx.currentTime;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+.03);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+len);
+    o.start(t); o.stop(t+len+.02);
+  }
+  function bass(){
+    note(-12,.55,.10,'sine');
+  }
+  function loop(){
+    note(seq[i%seq.length],.36,.13,'triangle');
+    if(i%4===0) bass();
+    i++; setTimeout(loop,340);
+  }
+  loop();
+}
+addEventListener('pointerdown',()=>startBgm(),{once:true});
+
+/* ========= Matter.js セットアップ ========= */
+const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices} = Matter;
+const engine = Engine.create({gravity:{x:0,y:GRAVITY_Y}});
+const world  = engine.world;
+const render = Render.create({
+  canvas: bgCanvas,
+  engine,
+  options:{ width:CANVAS_W, height:CANVAS_H, wireframes:false, background:'transparent' }
+});
+Render.run(render);
+Runner.run(Runner.create(), engine);
+
+/* ========= モトクロス台 ========= */
+// ポリゴン（バイク本体）
+const bikeVerts = Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
+const bikeY = 560;
+const bike = Bodies.fromVertices(CANVAS_W/2, bikeY, bikeVerts, {
+  isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}
+});
+// タイヤ
+const wheelL = Bodies.circle(CANVAS_W/2-60, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+const wheelR = Bodies.circle(CANVAS_W/2+90, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+World.add(world,[bike,wheelL,wheelR]);
+
+// 壁
+const wallL = Bodies.rectangle(-20, CANVAS_H/2, 40, CANVAS_H,{isStatic:true,render:{visible:false}});
+const wallR = Bodies.rectangle(CANVAS_W+20, CANVAS_H/2, 40, CANVAS_H,{isStatic:true,render:{visible:false}});
+World.add(world,[wallL,wallR]);
+
+/* ========= 画像ロード ========= */
+function preload(arr){
+  return Promise.all(arr.map(s=>new Promise(res=>{
+    const im=new Image();
+    im.onload=()=>res({src:s,w:im.naturalWidth,h:im.naturalHeight,im});
+    im.onerror=()=>res({src:s,w:100,h:100,im:null}); // 無い時でも動く
+    im.src = s + "?v=2";
+  })));
+}
+
+/* ========= ゲーム状態 ========= */
+let photos=[], queue=0, cur=null, followX=CANVAS_W/2, score=0, over=false;
+const scoreEl = document.getElementById('score');
+
+function setScore(n){ score=n; scoreEl.textContent = "SCORE " + score; }
+
+/* ブロック生成（画像 or 塗り） */
+function makeBody(p,x,y,isStatic=true){
+  const ratio = p.w ? p.h/p.w : 1;
+  const W = Math.min(MAX_PHOTO_W, p.w||MAX_PHOTO_W);
+  const H = W * ratio;
+  const opt = {
+    isStatic,
+    restitution:0.08,
+    friction:0.7
+  };
+  if(p.im){
+    opt.render = { sprite:{ texture:p.src, xScale:W/(p.w||W), yScale:H/(p.h||H)} };
+  }else{
+    opt.render = { fillStyle:"#ffd6ef" };
+  }
+  return Bodies.rectangle(x,y,W,H,opt);
+}
+
+function spawnNext(){
+  if(over) return;
+  const p = photos[queue++ % photos.length];
+  cur = makeBody(p, followX, 80, true);
+  World.add(world, cur);
+}
+
+function drop(){
+  if(!cur || over) return;
+  Body.setStatic(cur,false);
+  cur = null;
+  setScore(score+1);
+  setTimeout(spawnNext, 500);
+}
+
+function reset(){
+  Composite.allBodies(world).forEach(b=>{
+    if(![bike,wheelL,wheelR,wallL,wallR].includes(b)) World.remove(world,b);
+  });
+  queue=0; setScore(0); over=false; spawnNext();
+}
+
+/* ========= 入力 ========= */
+const cvs = document.getElementById('stage');
+cvs.addEventListener('pointermove',e=>{
+  const r=cvs.getBoundingClientRect();
+  followX = Math.max(30, Math.min(CANVAS_W-30, (e.clientX-r.left)*(CANVAS_W/r.width)));
+});
+cvs.addEventListener('pointerdown', drop);
+document.getElementById('drop').onclick = drop;
+document.getElementById('retry').onclick = reset;
+
+/* ========= 進行 ========= */
+Events.on(engine,'beforeUpdate',()=>{
+  drawBackground(performance.now()/1000); // 背景アニメ&ロゴ
+  if(cur && cur.isStatic){
+    Body.setPosition(cur,{x:cur.position.x + (followX-cur.position.x)*0.25, y:cur.position.y});
+  }
+});
+Events.on(engine,'afterUpdate',()=>{
+  const bodies = Composite.allBodies(world);
+  const fallen = bodies.find(b=>!b.isStatic && b.position.y > 642); // 台より下に落ちたら
+  if(fallen && !over){
+    over = true;
+    // ちょっと派手なエフェクト（小さなジャンプ）
+    Body.applyForce(fallen, fallen.position, {x:0, y:-0.03});
+  }
+});
+
+/* ========= スタート ========= */
+preload(ASSETS).then(list=>{
+  photos=list; setScore(0); spawnNext();
+});
+</script>
+</body>
+</html>
