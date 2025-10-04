@@ -3,20 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>ustarp969GAME – Stable Sprite Catch</title>
+<title>ustarp969GAME – Stack ver.</title>
 <style>
-  html,body{margin:0;overflow:hidden;background:#0c1218;font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif}
-  #ui{position:absolute;inset:0;pointer-events:none}
-  #score{position:absolute;top:10px;left:14px;color:#fff;font-weight:900;letter-spacing:.5px;text-shadow:0 2px 6px rgba(0,0,0,.4)}
-  #retry{position:absolute;top:10px;right:10px;background:#ff5c97;color:#fff;border:none;border-radius:12px;padding:10px 16px;font-weight:800;pointer-events:auto}
-  #over{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:40px;text-shadow:0 3px 12px #000;pointer-events:none}
+  html,body{margin:0;overflow:hidden;background:#0c1218;font-family:system-ui,sans-serif}
   canvas{display:block;margin:0 auto;background:linear-gradient(#bfe7ff,#eaf6ff 60%,#ffe1ee)}
+  #hud{position:absolute;inset:0;pointer-events:none}
+  #score{position:absolute;top:10px;left:14px;color:#fff;font-weight:900;letter-spacing:.5px;text-shadow:0 2px 6px rgba(0,0,0,.4)}
+  #drop{position:absolute;top:10px;right:110px;background:#ff5c97;border:none;color:#fff;border-radius:12px;padding:10px 16px;font-weight:800;pointer-events:auto}
+  #retry{position:absolute;top:10px;right:10px;background:#647bff;border:none;color:#fff;border-radius:12px;padding:10px 16px;font-weight:800;pointer-events:auto}
+  #over{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:40px;text-shadow:0 3px 12px #000;pointer-events:none}
+  #hint{position:absolute;top:52px;left:14px;color:#e7f1ff;opacity:.9;font-weight:700}
 </style>
 </head>
 <body>
   <canvas id="stage" width="420" height="720"></canvas>
-  <div id="ui">
+  <div id="hud">
     <div id="score">SCORE 0</div>
+    <div id="hint">上で左右に動くブロックを<br>タップ/DROPで落とす。台はドラッグで移動</div>
+    <button id="drop">DROP</button>
     <button id="retry">Retry</button>
     <div id="over">GAME OVER</div>
   </div>
@@ -28,10 +32,12 @@
   const W=420, H=720;
   const canvas = document.getElementById('stage');
 
-  // ====== 画像（大文字で同階層に配置）======
+  /* === スプライト画像（大文字・同階層） === */
   const TEXTURES = ["I.PNG","J.PNG","L.PNG","O.PNG","S.PNG","T.PNG"];
+  const SPRITE_SCALE = 0.22;      // 見た目倍率（画像）
+  const BODY_W = 42, BODY_H = 42; // 当たり判定サイズ
 
-  // ====== 物理エンジン ======
+  /* === エンジン/レンダラ === */
   const engine = Engine.create({gravity:{x:0,y:.9}});
   const render = Render.create({
     canvas, engine,
@@ -40,28 +46,22 @@
   Render.run(render);
   Runner.run(Runner.create(), engine);
 
-  // ====== 効果音（軽量）======
+  /* === 効果音（軽量） === */
   let AC=null, master=null;
-  function ensureAC(){ if(AC) return; const C=window.AudioContext||window.webkitAudioContext;
-    AC=new C(); master=AC.createGain(); master.gain.value=.24; master.connect(AC.destination); }
-  function beep(f,d=.12,v=.24,t="triangle"){ if(!AC) return; const n=AC.currentTime;
-    const o=AC.createOscillator(), g=AC.createGain(); o.type=t; o.frequency.value=f;
-    o.connect(g); g.connect(master);
-    g.gain.setValueAtTime(0.001,n); g.gain.linearRampToValueAtTime(v,n+.02);
-    g.gain.exponentialRampToValueAtTime(0.001,n+d); o.start(n); o.stop(n+d+.03); }
-  const SFX={ catch(){beep(700,.08,.22,"square");beep(950,.07,.18,"sine");},
-              over(){beep(250,.35,.3,"sawtooth"); setTimeout(()=>beep(170,.45,.24,"triangle"),280);} };
+  function ensureAC(){ if(AC) return; const C=window.AudioContext||window.webkitAudioContext; AC=new C(); master=AC.createGain(); master.gain.value=.24; master.connect(AC.destination); }
+  function beep(f,d=.12,v=.24,t="triangle"){ if(!AC) return; const n=AC.currentTime; const o=AC.createOscillator(), g=AC.createGain(); o.type=t; o.frequency.value=f; o.connect(g); g.connect(master); g.gain.setValueAtTime(0.001,n); g.gain.linearRampToValueAtTime(v,n+.02); g.gain.exponentialRampToValueAtTime(0.001,n+d); o.start(n); o.stop(n+d+.03); }
+  const SFX={ settle(){beep(760,.08,.22,"square");beep(980,.07,.18,"sine");}, over(){beep(250,.35,.3,"sawtooth"); setTimeout(()=>beep(170,.45,.24,"triangle"),280);} };
 
-  // ====== 壁（画面外へ逃げないよう左右と天井）======
+  /* === 壁 === */
   const wallOpt={isStatic:true, render:{visible:false}};
   World.add(engine.world,[
-    Bodies.rectangle(W/2,H+40,W,80,wallOpt), // floor(保険)
-    Bodies.rectangle(-40,H/2,80,H,wallOpt),  // left
-    Bodies.rectangle(W+40,H/2,80,H,wallOpt), // right
-    Bodies.rectangle(W/2,-40,W,80,wallOpt)   // ceiling
+    Bodies.rectangle(W/2,H+60,W,120,wallOpt),
+    Bodies.rectangle(-60,H/2,120,H,wallOpt),
+    Bodies.rectangle(W+60,H/2,120,H,wallOpt),
+    Bodies.rectangle(W/2,-60,W,120,wallOpt)
   ]);
 
-  // ====== 手のひら（人の手シルエット 4パターンからランダム）======
+  /* === 手のひら（土台） === */
   const HANDS=[
     "M-80 0 -50 -20 -20 -10 0 0 20 10 40 30 60 20 80 0 60 40 20 60 -20 50 -60 30",
     "M-90 0 -60 -10 -30 -20 0 -5 30 10 50 30 70 20 80 0 50 50 10 60 -40 40 -70 20",
@@ -69,85 +69,123 @@
     "M-80 0 -50 -10 -20 -5 10 0 30 10 50 30 70 20 60 40 20 60 -30 50 -70 20"
   ];
   function createHand(){
-    const verts = Vertices.fromPath(HANDS[Math.floor(Math.random()*HANDS.length)]);
-    return Bodies.fromVertices(W/2, 590, verts, {
-      isStatic:true, friction:1, restitution:0.2,
-      render:{fillStyle:"#f4c49b", strokeStyle:"#000", lineWidth:2}
-    });
+    const verts = Vertices.fromPath(HANDS[(Math.random()*HANDS.length)|0]);
+    return Bodies.fromVertices(W/2, 600, verts, { isStatic:true, friction:1, restitution:0.2,
+      render:{fillStyle:"#f4c49b", strokeStyle:"#000", lineWidth:2}});
   }
-  let hand = createHand();
-  World.add(engine.world, hand);
+  let hand = createHand(); World.add(engine.world, hand);
 
-  // 手のアニメ（相対スケールで累積崩れ防止）
+  // 手の開閉（相対スケールで安定）
   let phase=0, lastScale=1;
   Events.on(engine,'beforeUpdate',()=>{
     phase += 0.02;
-    const target = 1 + 0.05*Math.sin(phase); // 0.95〜1.05
+    const target = 1 + 0.05*Math.sin(phase);
     const factor = target / lastScale;
     Body.scale(hand, factor, factor, hand.position);
     lastScale = target;
   });
 
-  // ドラッグで手を左右移動
+  // 手をドラッグで左右移動
   let dragging=false;
-  const setX = (x)=> Body.setPosition(hand,{x: Math.max(70, Math.min(W-70, x)), y: hand.position.y});
-  canvas.addEventListener('pointerdown',e=>{ensureAC(); dragging=true; setX(e.clientX - canvas.getBoundingClientRect().left);});
-  canvas.addEventListener('pointermove',e=>{ if(!dragging) return;
-    setX(e.clientX - canvas.getBoundingClientRect().left);});
-  canvas.addEventListener('pointerup',()=> dragging=false);
-  canvas.addEventListener('pointercancel',()=> dragging=false);
+  const setHandX = x => Body.setPosition(hand,{x:Math.max(70,Math.min(W-70,x)), y:hand.position.y});
+  canvas.addEventListener('pointerdown',e=>{ensureAC(); dragging=true; setHandX(e.clientX - canvas.getBoundingClientRect().left);});
+  canvas.addEventListener('pointermove',e=>{ if(dragging) setHandX(e.clientX - canvas.getBoundingClientRect().left);});
+  canvas.addEventListener('pointerup',()=>dragging=false);
+  canvas.addEventListener('pointercancel',()=>dragging=false);
 
-  // ====== ブロック（写真スプライト）======
-  const SPRITE_SCALE = 0.22; // 画像の見た目倍率
-  const BODY_W = 42, BODY_H = 42; // 物理ボディ（画像に概ね合うサイズ）
-
-  function createBlock(x=Math.random()*(W-120)+60, y=80){
-    const tex = TEXTURES[(Math.random()*TEXTURES.length)|0];
-    const b = Bodies.rectangle(x,y,BODY_W,BODY_H,{
-      restitution:0.05, friction:0.3, angle:(Math.random()-.5)*0.2,
-      render:{ sprite:{texture:tex, xScale:SPRITE_SCALE, yScale:SPRITE_SCALE}, fillStyle:null }
-    });
-    World.add(engine.world,b);
-    return b;
-  }
-  let block = createBlock();
-
-  // ====== スコア & ルール ======
+  /* === 積むブロック === */
   let score=0, over=false;
-  const scoreEl = document.getElementById('score');
-  function setScore(n){ score=n; scoreEl.textContent = "SCORE " + n; }
+  const scoreEl=document.getElementById('score');
+  const overEl=document.getElementById('over');
+  function setScore(n){score=n; scoreEl.textContent="SCORE "+n;}
 
-  // 衝突（キャッチでスコア+1 → 次のブロック）
-  Events.on(engine,'collisionStart',ev=>{
-    for(const p of ev.pairs){
-      if((p.bodyA===block && p.bodyB===hand) || (p.bodyB===block && p.bodyA===hand)){
-        SFX.catch();
-        setScore(score+1);
-        World.remove(engine.world, block);
-        block = createBlock();
+  let block=null, dropped=false, settleFrames=0, touching=false, t0=0;
+
+  function spawnBlock(){
+    const tex = TEXTURES[(Math.random()*TEXTURES.length)|0];
+    // kinematic的に左右スイング → DROPで落下
+    block = Bodies.rectangle(W/2, 110, BODY_W, BODY_H, {
+      isStatic:true, angle:(Math.random()-.5)*0.15,
+      render:{sprite:{texture:tex,xScale:SPRITE_SCALE,yScale:SPRITE_SCALE}}
+    });
+    dropped=false; settleFrames=0; touching=false; t0=0;
+    World.add(engine.world, block);
+  }
+  spawnBlock();
+
+  // スイング制御 & 落下・静止判定
+  Events.on(engine,'beforeUpdate',()=>{
+    if(over || !block) return;
+    if(!dropped){
+      // 上部で左右にスイング
+      const t = (Date.now()%4000)/4000*2*Math.PI;
+      const mx = W/2 + Math.sin(t)*120;
+      Body.setPosition(block, {x:mx, y:110});
+    }else{
+      // 落下後：接触中かつ低速が続けば「着地」と判断して固定化
+      if(touching && Math.abs(block.velocity.y) < 0.25 && Math.abs(block.angularVelocity) < 0.12){
+        settleFrames++;
+        if(settleFrames>14){
+          // 固定化して次へ
+          Body.setStatic(block,true);
+          block = null;
+          SFX.settle();
+          setScore(score+1);
+          spawnBlock();
+        }
+      }else{
+        settleFrames = 0;
+      }
+      // 画面外に落下 → ゲームオーバー
+      if(block && block.position.y > H+60){
+        over = true;
+        overEl.style.display='flex';
+        SFX.over();
+      }
+    }
+    touching=false; // 次の判定のため毎フレーム初期化
+  });
+
+  // 接触フラグ（土台 or 既に固定化したブロックと触れているか）
+  Events.on(engine,'collisionActive',e=>{
+    if(!block) return;
+    for(const p of e.pairs){
+      if(p.bodyA===block || p.bodyB===block){
+        const other = (p.bodyA===block)?p.bodyB:p.bodyA;
+        if(other===hand || other.isStatic) touching=true;
       }
     }
   });
 
-  // 落下ミスでゲームオーバー
-  Events.on(engine,'afterUpdate',()=>{
-    if(!over && block.position.y > H+60){
-      over=true; document.getElementById('over').style.display='flex'; SFX.over();
-    }
-  });
+  // DROP（タップでもOK）
+  function dropNow(){
+    if(over || dropped) return;
+    ensureAC();
+    dropped = true;
+    Body.setStatic(block,false);
+  }
+  document.getElementById('drop').addEventListener('click', dropNow);
+  canvas.addEventListener('pointerdown', dropNow, {passive:true});
 
-  // リトライ
+  // Retry
   document.getElementById('retry').addEventListener('click',()=>{
     ensureAC();
-    // すべて除去 & 再セット
+    over=false; overEl.style.display='none';
+    // 可動物体を全部消す（固定化ブロックはそのままでもOKだが、全部消す）
     Composite.allBodies(engine.world).forEach(b=>{
-      if(!b.isStatic) World.remove(engine.world,b);
+      if(b!==hand && !b.isStatic) World.remove(engine.world,b);
     });
-    World.remove(engine.world, hand);
-    hand = createHand(); World.add(engine.world, hand);
-    block = createBlock();
-    phase=0; lastScale=1; over=false; setScore(0);
-    document.getElementById('over').style.display='none';
+    // 固定化されたブロックも一旦消してリセット
+    Composite.allBodies(engine.world).forEach(b=>{
+      if(b!==hand && b.isStatic && b !== block) World.remove(engine.world,b);
+    });
+    if(block){ World.remove(engine.world, block); block=null; }
+    // 手を作り直す（形をランダムに）
+    World.remove(engine.world, hand); hand=createHand(); World.add(engine.world, hand);
+    // 開閉アニメの状態リセット
+    phase=0; lastScale=1;
+    setScore(0);
+    spawnBlock();
   });
 
   setScore(0);
