@@ -174,3 +174,19 @@ bindPress(dropBtn, ()=>{
 </script>
 </body>
 </html>
+const blockImages = {
+    I: "I.PNG",
+    O: "O.PNG",
+    T: "T.PNG",
+    L: "L.PNG",
+    J: "J.PNG",
+    S: "S.PNG",
+    Z: "S.PNG" // ZはSの画像を流用するならこれでもOK
+};
+function drawBlock(x, y, type) {
+    let img = new Image();
+    img.src = blockImages[type];
+    img.onload = () => {
+        ctx.drawImage(img, x * blockSize, y * blockSize, blockSize, blockSize);
+    };
+}
