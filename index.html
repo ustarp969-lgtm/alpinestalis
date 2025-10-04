@@ -1,156 +1,204 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alpinestalis - Photo Tetris</title>
-  <style>
-    body { margin: 0; background: #111; color: #fff; text-align: center; }
-    canvas { background: #222; display: block; margin: auto; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+<title>Alpinestalis – Photo Tetris</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1220;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
+  #wrap{display:flex;justify-content:center;align-items:center;height:100%}
+  canvas{background:#0a1428;box-shadow:0 10px 30px rgba(0,0,0,.5);border-radius:12px}
+  #ui{position:fixed;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
+  #hint{font-size:12px;opacity:.8}
+  #controls{position:fixed;left:0;right:0;bottom:12px;display:flex;flex-direction:column;gap:10px;align-items:center;z-index:6}
+  .row{display:flex;gap:10px}
+  .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .btn:active{transform:translateY(1px)}
+  @media (min-width:760px){#controls{display:none}} /* PCではボタン非表示 */
+</style>
 </head>
 <body>
-  <h1>Alpinestalis - Photo Tetris</h1>
-  <canvas id="game" width="300" height="600"></canvas>
+<div id="ui">
+  <div id="score">SCORE 0</div>
+  <div id="hint">← →：移動 / ↑：回転 / ↓：ソフト / Space：ハード</div>
+</div>
+<div id="wrap">
+  <canvas id="cv" width="300" height="600" aria-label="tetris field"></canvas>
+</div>
 
-  <script>
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
-    const blockSize = 30;
-    const rows = 20;
-    const cols = 10;
+<!-- モバイル操作 -->
+<div id="controls">
+  <div class="row">
+    <button id="left"  class="btn">←</button>
+    <button id="rot"   class="btn">⟳</button>
+    <button id="right" class="btn">→</button>
+  </div>
+  <div class="row">
+    <button id="soft" class="btn">⇩</button>
+    <button id="drop" class="btn" style="min-width:160px">⤓ ハードドロップ</button>
+  </div>
+</div>
 
-    // アップロードした画像をブロックに対応
-    const blockImages = {
-      I: "I.PNG",
-      O: "O.PNG",
-      T: "T.PNG",
-      L: "L.PNG",
-      J: "J.PNG",
-      S: "S.PNG",
-      Z: "Z.PNG"
-    };
+<script>
+/* ===== 基本設定 ===== */
+const COLS=10, ROWS=20, SIZE=30;
+const cv=document.getElementById("cv"), cx=cv.getContext("2d");
+cv.width=COLS*SIZE; cv.height=ROWS*SIZE;
 
-    // ブロックの形
-    const shapes = {
-      I: [[1,1,1,1]],
-      O: [[1,1],[1,1]],
-      T: [[0,1,0],[1,1,1]],
-      L: [[1,0,0],[1,1,1]],
-      J: [[0,0,1],[1,1,1]],
-      S: [[0,1,1],[1,1,0]],
-      Z: [[1,1,0],[0,1,1]]
-    };
+let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
+let score=0;
 
-    let board = Array.from({ length: rows }, () => Array(cols).fill(null));
-    let cur;
+/* ===== 形（I,O,T,L,J,S ※ZはSを流用） ===== */
+const SHAPES = {
+  I: [[1,1,1,1]],
+  O: [[1,1],[1,1]],
+  T: [[0,1,0],[1,1,1]],
+  L: [[1,0,0],[1,1,1]],
+  J: [[0,0,1],[1,1,1]],
+  S: [[0,1,1],[1,1,0]]
+};
+const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
+const TYPES = Object.keys(SHAPES);
 
-    // ランダムにブロック生成
-    function newPiece() {
-      const types = Object.keys(shapes);
-      const type = types[Math.floor(Math.random()*types.length)];
-      cur = {
-        x: Math.floor(cols/2)-1,
-        y: 0,
-        type,
-        shape: shapes[type]
-      };
+/* ===== 画像マッピング（同階層のPNGを使用） =====
+   画像を img/ に置いた場合は "img/I.PNG" のように書き換えてね。 */
+const BLOCK_IMG_SRC = {
+  I: "I.PNG",
+  O: "O.PNG",
+  T: "T.PNG",
+  L: "L.PNG",
+  J: "J.PNG",
+  S: "S.PNG"
+};
+/* 画像の事前ロード（毎回newしない） */
+const BLOCK_IMG = {};
+for (const k in BLOCK_IMG_SRC) {
+  const im = new Image();
+  im.src = BLOCK_IMG_SRC[k] + "?v=1"; // キャッシュ避け
+  BLOCK_IMG[k] = im;
+}
+
+/* ===== ピース生成 ===== */
+function newPiece(){
+  const t=TYPES[(Math.random()*TYPES.length)|0];
+  return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0};
+}
+let cur=newPiece();
+
+/* ===== 回転・衝突 ===== */
+function rot(m){
+  const h=m.length,w=m[0].length;
+  const r=[...Array(w)].map(()=>Array(h).fill(0));
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
+  return r;
+}
+function coll(m,px,py){
+  for(let y=0;y<m.length;y++)for(let x=0;x<m[0].length;x++){
+    if(!m[y][x]) continue;
+    const nx=px+x, ny=py+y;
+    if(nx<0||nx>=COLS||ny>=ROWS) return true;
+    if(ny>=0 && board[ny][nx]) return true;
+  }
+  return false;
+}
+
+/* ===== 固定・ライン消去 ===== */
+function merge(){
+  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++){
+    if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
+  }
+  for(let y=ROWS-1;y>=0;y--){
+    if(board[y].every(v=>v)){
+      board.splice(y,1);
+      board.unshift(Array(COLS).fill(0));
+      score+=100; y++;
     }
+  }
+  document.getElementById('score').textContent=`SCORE ${score}`;
+  cur=newPiece();
+  if(coll(cur.m,cur.x,cur.y)){ // Game Over
+    board=Array.from({length:ROWS},()=>Array(COLS).fill(0));
+    score=0; document.getElementById('score').textContent='SCORE 0';
+  }
+}
 
-    // ブロック描画
-    function drawBlock(x, y, type) {
-      if (!type) return;
-      let img = new Image();
-      img.src = blockImages[type];
-      img.onload = () => {
-        ctx.drawImage(img, x * blockSize, y * blockSize, blockSize, blockSize);
-      };
-    }
+/* ===== 描画（画像があれば画像、なければ色） ===== */
+function drawCell(x,y,t){
+  const gx=x*SIZE, gy=y*SIZE;
+  const im = BLOCK_IMG[t];
+  if (im && im.complete && im.naturalWidth) {
+    cx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);
+  } else {
+    cx.fillStyle = COLORS[t]||"#888";
+    cx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
+  }
+}
+function render(){
+  cx.clearRect(0,0,cv.width,cv.height);
+  // 背景グリッド
+  cx.strokeStyle='rgba(255,255,255,.06)';
+  for(let x=0;x<=COLS;x++){ cx.beginPath(); cx.moveTo(x*SIZE,0); cx.lineTo(x*SIZE,ROWS*SIZE); cx.stroke(); }
+  for(let y=0;y<=ROWS;y++){ cx.beginPath(); cx.moveTo(0,y*SIZE); cx.lineTo(COLS*SIZE,y*SIZE); cx.stroke(); }
+  // 盤面
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
+  // 現在ピース
+  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
+}
 
-    // 全体描画
-    function draw() {
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+/* ===== 進行 ===== */
+function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else { merge(); } }
+let last=0, acc=0;
+function loop(ts){
+  if(!last) last=ts; const dt=ts-last; last=ts;
+  const gravity=520; acc+=dt; if(acc>=gravity){ acc=0; stepDown(); }
+  render(); requestAnimationFrame(loop);
+}
 
-      // ボード
-      for (let y=0;y<rows;y++) {
-        for (let x=0;x<cols;x++) {
-          if (board[y][x]) drawBlock(x,y,board[y][x]);
-        }
-      }
+/* ===== キー操作 ===== */
+addEventListener('keydown',e=>{
+  if(e.code==='ArrowLeft' && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
+  if(e.code==='ArrowRight'&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
+  if(e.code==='ArrowDown') stepDown();
+  if(e.code==='ArrowUp'){ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; }
+  if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
+});
 
-      // 現在のブロック
-      cur.shape.forEach((row,dy)=>{
-        row.forEach((val,dx)=>{
-          if(val) drawBlock(cur.x+dx,cur.y+dy,cur.type);
-        });
-      });
-    }
+/* ===== タッチ操作（長押しリピート） ===== */
+function holdRepeat(fn,initial=180,every=90){
+  let t=null, i=null;
+  return {
+    start(){ fn(); t=setTimeout(()=>{i=setInterval(fn,every);},initial); },
+    end(){ clearTimeout(t); clearInterval(i); t=i=null; }
+  };
+}
+const leftBtn = document.getElementById('left');
+const rightBtn= document.getElementById('right');
+const rotBtn  = document.getElementById('rot');
+const softBtn = document.getElementById('soft');
+const dropBtn = document.getElementById('drop');
 
-    // 衝突判定
-    function coll(shape, x, y) {
-      return shape.some((row,dy)=>
-        row.some((val,dx)=>{
-          if (!val) return false;
-          let nx = x+dx, ny=y+dy;
-          return nx<0||nx>=cols||ny>=rows||board[ny]?.[nx];
-        })
-      );
-    }
+const repL=holdRepeat(()=>{ if(!coll(cur.m,cur.x-1,cur.y)) cur.x--; });
+const repR=holdRepeat(()=>{ if(!coll(cur.m,cur.x+1,cur.y)) cur.x++; });
+const repD=holdRepeat(()=> stepDown(), 120, 60);
 
-    // 固定
-    function merge() {
-      cur.shape.forEach((row,dy)=>{
-        row.forEach((val,dx)=>{
-          if(val) board[cur.y+dy][cur.x+dx]=cur.type;
-        });
-      });
-    }
+function bindPress(el,onDown,onUp){
+  const down = ()=>onDown&&onDown();
+  const up   = ()=>onUp&&onUp();
+  el.addEventListener('touchstart',down,{passive:true});
+  el.addEventListener('touchend',up,{passive:true});
+  el.addEventListener('touchcancel',up,{passive:true});
+  el.addEventListener('mousedown',down);
+  el.addEventListener('mouseup',up);
+  el.addEventListener('mouseleave',up);
+}
+bindPress(leftBtn, ()=>repL.start(), ()=>repL.end());
+bindPress(rightBtn,()=>repR.start(), ()=>repR.end());
+bindPress(rotBtn,  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
+bindPress(softBtn, ()=>repD.start(), ()=>repD.end());
+bindPress(dropBtn, ()=>{ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); });
 
-    // ライン消去
-    function clearLines() {
-      board = board.filter(r => r.some(c=>!c));
-      while(board.length<rows) board.unshift(Array(cols).fill(null));
-    }
-
-    // 回転
-    function rotate() {
-      const shape = cur.shape[0].map((_,i)=>cur.shape.map(r=>r[i]).reverse());
-      if(!coll(shape,cur.x,cur.y)) cur.shape=shape;
-    }
-
-    // 落下
-    function drop() {
-      if(!coll(cur.shape,cur.x,cur.y+1)){
-        cur.y++;
-      } else {
-        merge();
-        clearLines();
-        newPiece();
-        if(coll(cur.shape,cur.x,cur.y)){
-          alert("GAME OVER!");
-          board=Array.from({ length: rows }, () => Array(cols).fill(null));
-        }
-      }
-    }
-
-    // 操作
-    document.addEventListener("keydown",e=>{
-      if(e.key==="ArrowLeft" && !coll(cur.shape,cur.x-1,cur.y)) cur.x--;
-      if(e.key==="ArrowRight" && !coll(cur.shape,cur.x+1,cur.y)) cur.x++;
-      if(e.key==="ArrowDown") drop();
-      if(e.key==="ArrowUp") rotate();
-      draw();
-    });
-
-    // ゲームループ
-    function loop() {
-      drop();
-      draw();
-      setTimeout(loop,500);
-    }
-
-    newPiece();
-    loop();
-  </script>
+/* ===== スタート ===== */
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
