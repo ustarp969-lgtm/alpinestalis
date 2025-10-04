@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Alpinestalis Tetris – Touch Safe</title>
+<title>Alpinestalis Tetris – Photo Blocks</title>
 <style>
   html,body{margin:0;height:100%;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
   #wrap{display:flex;justify-content:center;align-items:center;height:100%}
   canvas{background:#0a1224;box-shadow:0 10px 30px rgba(0,0,0,.5);border-radius:12px}
   #ui{position:fixed;top:8px;left:8px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
   #ui small{opacity:.8}
-  /* 目に見える大きな操作ボタン */
+  /* 見える操作ボタン */
   #controls{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:10px;z-index:6}
   .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
   .btn:active{transform:translateY(1px)}
@@ -25,7 +25,7 @@
   <small>← →：移動 / ↑：回転 / space：落下（スマホは下のボタン）</small>
 </div>
 
-<!-- 見える操作ボタン -->
+<!-- 操作ボタン -->
 <div id="controls">
   <button id="left"  class="btn">←</button>
   <button id="rot"   class="btn">⟳</button>
@@ -56,21 +56,31 @@ const SHAPES = {
 const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
 const NAMES = Object.keys(SHAPES);
 
-// 画像（任意：img/I.png 等があれば使用）
-const IMG={};
-Promise.all(NAMES.map(n=>new Promise(res=>{
-  const im=new Image();
-  im.onload=()=>{IMG[n]=im;res();};
-  im.onerror=()=>{IMG[n]=null;res();};
-  im.src=`img/${n}.png`;
-}))).then(()=>requestAnimationFrame(loop));
+// ===== ここが写真ブロック設定（拡張子・大文字小文字を必ず合わせる）=====
+const BLOCK_IMG_SRC = {
+  I: "I.PNG",
+  O: "O.PNG",
+  T: "T.PNG",
+  L: "L.PNG",
+  J: "J.PNG",
+  S: "S.PNG"
+};
+// 画像を事前ロード（毎回 new Image しない）
+const BLOCK_IMG = {};
+for (const k in BLOCK_IMG_SRC) {
+  const im = new Image();
+  im.src = BLOCK_IMG_SRC[k] + "?v=1"; // キャッシュ回避
+  BLOCK_IMG[k] = im;
+}
 
+// ===== ピース生成 =====
 function newPiece(){
   const t=NAMES[(Math.random()*NAMES.length)|0];
   return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0};
 }
 let cur=newPiece();
 
+// ===== 回転・判定 =====
 function rot(m){
   const h=m.length,w=m[0].length;
   const r=[...Array(w)].map(()=>Array(h).fill(0));
@@ -86,11 +96,12 @@ function coll(m,px,py){
   }
   return false;
 }
+
+// ===== 固定 & ライン消去 =====
 function merge(){
   for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++){
     if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
   }
-  // ライン消去
   for(let y=ROWS-1;y>=0;y--){
     if(board[y].every(v=>v)){
       board.splice(y,1);
@@ -102,19 +113,30 @@ function merge(){
   cur=newPiece();
   if(coll(cur.m,cur.x,cur.y)){ board=Array.from({length:ROWS},()=>Array(COLS).fill(0)); score=0; document.getElementById('score').textContent='SCORE 0'; }
 }
+
+// ===== 描画（ここで写真 or 色を描く）=====
 function drawCell(x,y,t){
-  const gx=x*SIZE, gy=y*SIZE, im=IMG[t];
-  if(im){ cx.drawImage(im,gx+2,gy+2,SIZE-4,SIZE-4); }
-  else { cx.fillStyle=COLORS[t]||"#888"; cx.fillRect(gx+1,gy+1,SIZE-2,SIZE-2); }
+  const gx=x*SIZE, gy=y*SIZE;
+  const im = BLOCK_IMG[t];
+  if (im && im.complete && im.naturalWidth) {
+    cx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);   // 画像があれば使う
+  } else {
+    cx.fillStyle = COLORS[t]||"#888";               // 画像が無ければ色
+    cx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
+  }
 }
 function render(){
   cx.clearRect(0,0,cv.width,cv.height);
+  // グリッド
   cx.strokeStyle='rgba(255,255,255,.06)';
   for(let x=0;x<=COLS;x++){ cx.beginPath(); cx.moveTo(x*SIZE,0); cx.lineTo(x*SIZE,ROWS*SIZE); cx.stroke(); }
   for(let y=0;y<=ROWS;y++){ cx.beginPath(); cx.moveTo(0,y*SIZE); cx.lineTo(COLS*SIZE,y*SIZE); cx.stroke(); }
+  // 盤面 + 現在ピース
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
   for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
 }
+
+// ===== 進行 =====
 let last=0, acc=0;
 function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else merge(); }
 function loop(ts){
@@ -132,7 +154,7 @@ addEventListener('keydown',e=>{
   if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
 });
 
-// ===== タッチ：見えるボタン（長押しリピート対応） =====
+// ===== タッチ（見えるボタン + 長押しリピート）=====
 function holdRepeat(fn,initial=180,every=90){
   let t=null, i=null;
   return {
@@ -165,28 +187,10 @@ bindPress(rightBtn,()=>repR.start(), ()=>repR.end());
 bindPress(rotBtn,  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
 let pressT=0;
 bindPress(softBtn, ()=>repD.start(), ()=>repD.end());
-softBtn.addEventListener('touchstart',()=>{pressT=Date.now();},{passive:true});
-softBtn.addEventListener('mouseup',()=>{pressT=0;});
-bindPress(dropBtn, ()=>{
-  while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge();
-});
+bindPress(dropBtn, ()=>{ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); });
 
+// ===== スタート =====
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
-const blockImages = {
-    I: "I.PNG",
-    O: "O.PNG",
-    T: "T.PNG",
-    L: "L.PNG",
-    J: "J.PNG",
-    S: "S.PNG",
-    Z: "S.PNG" // ZはSの画像を流用するならこれでもOK
-};
-function drawBlock(x, y, type) {
-    let img = new Image();
-    img.src = blockImages[type];
-    img.onload = () => {
-        ctx.drawImage(img, x * blockSize, y * blockSize, blockSize, blockSize);
-    };
-}
