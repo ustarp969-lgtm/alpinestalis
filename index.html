@@ -6,47 +6,59 @@
 <title>ustarp969GAME – Rider Balance</title>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;}
-  canvas{display:block;margin:0 auto;touch-action:none}
-  #hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:center;
-       font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#013;z-index:10}
+  /* 背景とゲーム用キャンバスを重ねる */
+  #wrap{position:fixed;inset:0;display:grid;place-items:center}
+  canvas{touch-action:none;display:block}
+  #bg{z-index:1}
+  #stage{z-index:2}
+  #hud{position:fixed;top:10px;left:10px;right:10px;
+       display:flex;justify-content:space-between;align-items:center;
+       font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       color:#013;z-index:3}
   button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
   #drop{background:#ff5c97;color:#fff;margin-right:6px}
   #retry{background:#79c6ff;color:#003}
+  #tip{font-size:13px;opacity:.8;margin-left:8px}
 </style>
 </head>
 <body>
 <div id="hud">
-  <div id="score">SCORE 0</div>
+  <div><span id="score">SCORE 0</span><span id="tip">　タップでBGM / スワイプで移動 → DROPで落とす</span></div>
   <div>
     <button id="drop">DROP</button>
     <button id="retry">Retry</button>
   </div>
 </div>
-<canvas id="stage" width="420" height="720"></canvas>
+
+<div id="wrap">
+  <!-- 背景用（下層） -->
+  <canvas id="bg" width="420" height="720"></canvas>
+  <!-- Matter.js描画用（上層） -->
+  <canvas id="stage" width="420" height="720"></canvas>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-/* ========= 設定 ========= */
-const CANVAS_W = 420, CANVAS_H = 720;
-const GRAVITY_Y = 0.95;
-const MAX_PHOTO_W = 56;          // ★ さらに小さく
-const ASSETS = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"]; // 画像が無い場合は色塗りで出す
+/* ========= 基本設定 ========= */
+const W = 420, H = 720;
+const GY = 0.95;
+const MAX_PHOTO_W = 56;                     // ★ キャラの最大幅（小さめ）
+const ASSETS = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"]; // 画像が無い場合も動く
 
-/* ========= 背景描画（グラデ＋雲＋ロゴ） ========= */
-const bgCanvas = document.getElementById('stage');
-const bgCtx = bgCanvas.getContext('2d');
+/* ========= 背景（別キャンバス） ========= */
+const bg = document.getElementById('bg');
+const bgCtx = bg.getContext('2d');
 function drawBackground(t=0){
-  // 空のグラデ
-  const g = bgCtx.createLinearGradient(0,0,0,CANVAS_H);
+  // 空グラデーション
+  const g = bgCtx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,"#cfeeff"); g.addColorStop(0.55,"#e7f6ff"); g.addColorStop(1,"#ffe6f2");
-  bgCtx.fillStyle=g; bgCtx.fillRect(0,0,CANVAS_W,CANVAS_H);
+  bgCtx.fillStyle=g; bgCtx.fillRect(0,0,W,H);
+
   // ふわふわ雲
   bgCtx.globalAlpha=0.6;
   for(let i=0;i<5;i++){
-    const x = (t*12 + i*120) % (CANVAS_W+160) - 80;
-    const y = 60 + i*45;
-    bgCtx.beginPath();
-    bgCtx.fillStyle="#ffffff";
+    const x=(t*12+i*120)%(W+160)-80, y=60+i*45;
+    bgCtx.beginPath(); bgCtx.fillStyle="#fff";
     bgCtx.ellipse(x,y,38,18,0,0,Math.PI*2);
     bgCtx.ellipse(x+24,y+6,26,12,0,0,Math.PI*2);
     bgCtx.ellipse(x-22,y+8,22,10,0,0,Math.PI*2);
@@ -56,15 +68,16 @@ function drawBackground(t=0){
 
   // 透かしロゴ
   bgCtx.save();
-  bgCtx.translate(CANVAS_W/2, CANVAS_H-42);
-  bgCtx.font="900 22px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif";
+  bgCtx.translate(W/2, H-42);
+  bgCtx.font="900 22px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
   bgCtx.fillStyle="rgba(0,0,0,0.10)";
   bgCtx.textAlign="center";
-  bgCtx.fillText("ustarp969GAME", 0, 0);
+  bgCtx.fillText("ustarp969GAME",0,0);
   bgCtx.restore();
 }
+(function loop(){ drawBackground(performance.now()/1000); requestAnimationFrame(loop); })();
 
-/* ========= BGM（ワンタップで開始） ========= */
+/* ========= BGM（初回タップで開始） ========= */
 let actx=null, master=null;
 function startBgm(){
   if(actx) return;
@@ -85,84 +98,70 @@ function startBgm(){
     g.gain.exponentialRampToValueAtTime(0.0001,t+len);
     o.start(t); o.stop(t+len+.02);
   }
-  function bass(){
-    note(-12,.55,.10,'sine');
-  }
-  function loop(){
+  function bass(){ note(-12,.55,.10,'sine'); }
+  (function loop(){
     note(seq[i%seq.length],.36,.13,'triangle');
     if(i%4===0) bass();
     i++; setTimeout(loop,340);
-  }
-  loop();
+  })();
 }
 addEventListener('pointerdown',()=>startBgm(),{once:true});
 
-/* ========= Matter.js セットアップ ========= */
+/* ========= Matter.js ========= */
 const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices} = Matter;
-const engine = Engine.create({gravity:{x:0,y:GRAVITY_Y}});
+const stage = document.getElementById('stage');
+
+const engine = Engine.create({gravity:{x:0,y:GY}});
 const world  = engine.world;
 const render = Render.create({
-  canvas: bgCanvas,
+  canvas: stage,
   engine,
-  options:{ width:CANVAS_W, height:CANVAS_H, wireframes:false, background:'transparent' }
+  options:{ width:W, height:H, wireframes:false, background:'transparent' }
 });
 Render.run(render);
 Runner.run(Runner.create(), engine);
 
-/* ========= モトクロス台 ========= */
-// ポリゴン（バイク本体）
+/* ========= モトクロス台（見える色＋太いタイヤ） ========= */
 const bikeVerts = Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
 const bikeY = 560;
-const bike = Bodies.fromVertices(CANVAS_W/2, bikeY, bikeVerts, {
-  isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}
-});
-// タイヤ
-const wheelL = Bodies.circle(CANVAS_W/2-60, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
-const wheelR = Bodies.circle(CANVAS_W/2+90, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+const bike = Bodies.fromVertices(W/2, bikeY, bikeVerts, {isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
+const wheelL = Bodies.circle(W/2-60, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+const wheelR = Bodies.circle(W/2+90, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
 World.add(world,[bike,wheelL,wheelR]);
 
 // 壁
-const wallL = Bodies.rectangle(-20, CANVAS_H/2, 40, CANVAS_H,{isStatic:true,render:{visible:false}});
-const wallR = Bodies.rectangle(CANVAS_W+20, CANVAS_H/2, 40, CANVAS_H,{isStatic:true,render:{visible:false}});
+const wallL = Bodies.rectangle(-20, H/2, 40, H,{isStatic:true,render:{visible:false}});
+const wallR = Bodies.rectangle(W+20, H/2, 40, H,{isStatic:true,render:{visible:false}});
 World.add(world,[wallL,wallR]);
 
 /* ========= 画像ロード ========= */
-function preload(arr){
-  return Promise.all(arr.map(s=>new Promise(res=>{
+function preload(names){
+  return Promise.all(names.map(s=>new Promise(res=>{
     const im=new Image();
-    im.onload=()=>res({src:s,w:im.naturalWidth,h:im.naturalHeight,im});
-    im.onerror=()=>res({src:s,w:100,h:100,im:null}); // 無い時でも動く
-    im.src = s + "?v=2";
+    im.onload=()=>res({src:"./"+s,w:im.naturalWidth,h:im.naturalHeight,im}); // 相対パスで堅牢に
+    im.onerror=()=>res({src:"./"+s,w:100,h:100,im:null});
+    im.src="./"+s+"?v=2";
   })));
 }
 
 /* ========= ゲーム状態 ========= */
-let photos=[], queue=0, cur=null, followX=CANVAS_W/2, score=0, over=false;
+let photos=[], qi=0, cur=null, followX=W/2, score=0, over=false;
 const scoreEl = document.getElementById('score');
+function setScore(n){ score=n; scoreEl.textContent="SCORE "+score; }
 
-function setScore(n){ score=n; scoreEl.textContent = "SCORE " + score; }
-
-/* ブロック生成（画像 or 塗り） */
 function makeBody(p,x,y,isStatic=true){
   const ratio = p.w ? p.h/p.w : 1;
-  const W = Math.min(MAX_PHOTO_W, p.w||MAX_PHOTO_W);
-  const H = W * ratio;
-  const opt = {
-    isStatic,
-    restitution:0.08,
-    friction:0.7
-  };
-  if(p.im){
-    opt.render = { sprite:{ texture:p.src, xScale:W/(p.w||W), yScale:H/(p.h||H)} };
-  }else{
-    opt.render = { fillStyle:"#ffd6ef" };
-  }
-  return Bodies.rectangle(x,y,W,H,opt);
+  const w = Math.min(MAX_PHOTO_W, p.w||MAX_PHOTO_W);
+  const h = w * ratio;
+  const opt = { isStatic, restitution:0.08, friction:0.7 };
+  if(p.im){ opt.render = { sprite:{ texture:p.src, xScale:w/(p.w||w), yScale:h/(p.h||h) } }; }
+  else   { opt.render = { fillStyle:"#ffd6ef" }; }
+  return Bodies.rectangle(x,y,w,h,opt);
 }
 
-function spawnNext(){
+function spawn(){
   if(over) return;
-  const p = photos[queue++ % photos.length];
+  const p = photos[qi++ % photos.length];
   cur = makeBody(p, followX, 80, true);
   World.add(world, cur);
 }
@@ -170,49 +169,39 @@ function spawnNext(){
 function drop(){
   if(!cur || over) return;
   Body.setStatic(cur,false);
-  cur = null;
-  setScore(score+1);
-  setTimeout(spawnNext, 500);
+  cur=null; setScore(score+1);
+  setTimeout(spawn, 500);
 }
 
 function reset(){
   Composite.allBodies(world).forEach(b=>{
     if(![bike,wheelL,wheelR,wallL,wallR].includes(b)) World.remove(world,b);
   });
-  queue=0; setScore(0); over=false; spawnNext();
+  qi=0; over=false; setScore(0); spawn();
 }
 
 /* ========= 入力 ========= */
-const cvs = document.getElementById('stage');
-cvs.addEventListener('pointermove',e=>{
-  const r=cvs.getBoundingClientRect();
-  followX = Math.max(30, Math.min(CANVAS_W-30, (e.clientX-r.left)*(CANVAS_W/r.width)));
+stage.addEventListener('pointermove',e=>{
+  const r=stage.getBoundingClientRect();
+  followX = Math.max(30, Math.min(W-30, (e.clientX-r.left)*(W/r.width)));
 });
-cvs.addEventListener('pointerdown', drop);
+stage.addEventListener('pointerdown', drop);
 document.getElementById('drop').onclick = drop;
 document.getElementById('retry').onclick = reset;
 
 /* ========= 進行 ========= */
 Events.on(engine,'beforeUpdate',()=>{
-  drawBackground(performance.now()/1000); // 背景アニメ&ロゴ
   if(cur && cur.isStatic){
-    Body.setPosition(cur,{x:cur.position.x + (followX-cur.position.x)*0.25, y:cur.position.y});
+    Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.25, y:cur.position.y});
   }
 });
 Events.on(engine,'afterUpdate',()=>{
-  const bodies = Composite.allBodies(world);
-  const fallen = bodies.find(b=>!b.isStatic && b.position.y > 642); // 台より下に落ちたら
-  if(fallen && !over){
-    over = true;
-    // ちょっと派手なエフェクト（小さなジャンプ）
-    Body.applyForce(fallen, fallen.position, {x:0, y:-0.03});
-  }
+  const fallen = Composite.allBodies(world).find(b=>!b.isStatic && b.position.y>642);
+  if(fallen && !over){ over=true; Body.applyForce(fallen, fallen.position, {x:0,y:-0.03}); }
 });
 
 /* ========= スタート ========= */
-preload(ASSETS).then(list=>{
-  photos=list; setScore(0); spawnNext();
-});
+preload(ASSETS).then(list=>{ photos=list; setScore(0); spawn(); });
 </script>
 </body>
 </html>
