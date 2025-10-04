@@ -1,196 +1,156 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Alpinestalis Tetris – Photo Blocks</title>
-<style>
-  html,body{margin:0;height:100%;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
-  #wrap{display:flex;justify-content:center;align-items:center;height:100%}
-  canvas{background:#0a1224;box-shadow:0 10px 30px rgba(0,0,0,.5);border-radius:12px}
-  #ui{position:fixed;top:8px;left:8px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
-  #ui small{opacity:.8}
-  /* 見える操作ボタン */
-  #controls{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:10px;z-index:6}
-  .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-  .btn:active{transform:translateY(1px)}
-  #row-bottom{display:flex;gap:10px;margin-top:10px;justify-content:center}
-  #drop{min-width:160px}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alpinestalis - Photo Tetris</title>
+  <style>
+    body { margin: 0; background: #111; color: #fff; text-align: center; }
+    canvas { background: #222; display: block; margin: auto; }
+  </style>
 </head>
 <body>
-<div id="wrap"><canvas id="cv" width="300" height="600"></canvas></div>
-<div id="ui">
-  <div id="score">SCORE 0</div>
-  <small>← →：移動 / ↑：回転 / space：落下（スマホは下のボタン）</small>
-</div>
+  <h1>Alpinestalis - Photo Tetris</h1>
+  <canvas id="game" width="300" height="600"></canvas>
 
-<!-- 操作ボタン -->
-<div id="controls">
-  <button id="left"  class="btn">←</button>
-  <button id="rot"   class="btn">⟳</button>
-  <button id="right" class="btn">→</button>
-</div>
-<div id="row-bottom">
-  <button id="soft" class="btn">⇩</button>
-  <button id="drop" class="btn">⤓ ハードドロップ</button>
-</div>
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const blockSize = 30;
+    const rows = 20;
+    const cols = 10;
 
-<script>
-// ===== 盤面設定 =====
-const COLS=10, ROWS=20, SIZE=30;
-const cv=document.getElementById("cv"), cx=cv.getContext("2d");
-cv.width = COLS*SIZE; cv.height = ROWS*SIZE;
-let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
-let score=0;
+    // アップロードした画像をブロックに対応
+    const blockImages = {
+      I: "I.PNG",
+      O: "O.PNG",
+      T: "T.PNG",
+      L: "L.PNG",
+      J: "J.PNG",
+      S: "S.PNG",
+      Z: "Z.PNG"
+    };
 
-// ===== 形（I,O,T,L,J,S の6種）=====
-const SHAPES = {
-  I: [[1,1,1,1]],
-  O: [[1,1],[1,1]],
-  T: [[0,1,0],[1,1,1]],
-  L: [[1,0,0],[1,1,1]],
-  J: [[0,0,1],[1,1,1]],
-  S: [[0,1,1],[1,1,0]]
-};
-const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
-const NAMES = Object.keys(SHAPES);
+    // ブロックの形
+    const shapes = {
+      I: [[1,1,1,1]],
+      O: [[1,1],[1,1]],
+      T: [[0,1,0],[1,1,1]],
+      L: [[1,0,0],[1,1,1]],
+      J: [[0,0,1],[1,1,1]],
+      S: [[0,1,1],[1,1,0]],
+      Z: [[1,1,0],[0,1,1]]
+    };
 
-// ===== ここが写真ブロック設定（拡張子・大文字小文字を必ず合わせる）=====
-const BLOCK_IMG_SRC = {
-  I: "I.PNG",
-  O: "O.PNG",
-  T: "T.PNG",
-  L: "L.PNG",
-  J: "J.PNG",
-  S: "S.PNG"
-};
-// 画像を事前ロード（毎回 new Image しない）
-const BLOCK_IMG = {};
-for (const k in BLOCK_IMG_SRC) {
-  const im = new Image();
-  im.src = BLOCK_IMG_SRC[k] + "?v=1"; // キャッシュ回避
-  BLOCK_IMG[k] = im;
-}
+    let board = Array.from({ length: rows }, () => Array(cols).fill(null));
+    let cur;
 
-// ===== ピース生成 =====
-function newPiece(){
-  const t=NAMES[(Math.random()*NAMES.length)|0];
-  return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0};
-}
-let cur=newPiece();
-
-// ===== 回転・判定 =====
-function rot(m){
-  const h=m.length,w=m[0].length;
-  const r=[...Array(w)].map(()=>Array(h).fill(0));
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
-  return r;
-}
-function coll(m,px,py){
-  for(let y=0;y<m.length;y++)for(let x=0;x<m[0].length;x++){
-    if(!m[y][x]) continue;
-    const nx=px+x, ny=py+y;
-    if(nx<0||nx>=COLS||ny>=ROWS) return true;
-    if(ny>=0 && board[ny][nx]) return true;
-  }
-  return false;
-}
-
-// ===== 固定 & ライン消去 =====
-function merge(){
-  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++){
-    if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
-  }
-  for(let y=ROWS-1;y>=0;y--){
-    if(board[y].every(v=>v)){
-      board.splice(y,1);
-      board.unshift(Array(COLS).fill(0));
-      score+=100; y++;
+    // ランダムにブロック生成
+    function newPiece() {
+      const types = Object.keys(shapes);
+      const type = types[Math.floor(Math.random()*types.length)];
+      cur = {
+        x: Math.floor(cols/2)-1,
+        y: 0,
+        type,
+        shape: shapes[type]
+      };
     }
-  }
-  document.getElementById('score').textContent=`SCORE ${score}`;
-  cur=newPiece();
-  if(coll(cur.m,cur.x,cur.y)){ board=Array.from({length:ROWS},()=>Array(COLS).fill(0)); score=0; document.getElementById('score').textContent='SCORE 0'; }
-}
 
-// ===== 描画（ここで写真 or 色を描く）=====
-function drawCell(x,y,t){
-  const gx=x*SIZE, gy=y*SIZE;
-  const im = BLOCK_IMG[t];
-  if (im && im.complete && im.naturalWidth) {
-    cx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);   // 画像があれば使う
-  } else {
-    cx.fillStyle = COLORS[t]||"#888";               // 画像が無ければ色
-    cx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
-  }
-}
-function render(){
-  cx.clearRect(0,0,cv.width,cv.height);
-  // グリッド
-  cx.strokeStyle='rgba(255,255,255,.06)';
-  for(let x=0;x<=COLS;x++){ cx.beginPath(); cx.moveTo(x*SIZE,0); cx.lineTo(x*SIZE,ROWS*SIZE); cx.stroke(); }
-  for(let y=0;y<=ROWS;y++){ cx.beginPath(); cx.moveTo(0,y*SIZE); cx.lineTo(COLS*SIZE,y*SIZE); cx.stroke(); }
-  // 盤面 + 現在ピース
-  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
-  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
-}
+    // ブロック描画
+    function drawBlock(x, y, type) {
+      if (!type) return;
+      let img = new Image();
+      img.src = blockImages[type];
+      img.onload = () => {
+        ctx.drawImage(img, x * blockSize, y * blockSize, blockSize, blockSize);
+      };
+    }
 
-// ===== 進行 =====
-let last=0, acc=0;
-function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else merge(); }
-function loop(ts){
-  if(!last) last=ts; const dt=ts-last; last=ts;
-  const gravity=500; acc+=dt; if(acc>=gravity){ acc=0; stepDown(); }
-  render(); requestAnimationFrame(loop);
-}
+    // 全体描画
+    function draw() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
 
-// ===== キーボード =====
-addEventListener('keydown',e=>{
-  if(e.code==='ArrowLeft' && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
-  if(e.code==='ArrowRight'&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
-  if(e.code==='ArrowDown') stepDown();
-  if(e.code==='ArrowUp'){ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; }
-  if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
-});
+      // ボード
+      for (let y=0;y<rows;y++) {
+        for (let x=0;x<cols;x++) {
+          if (board[y][x]) drawBlock(x,y,board[y][x]);
+        }
+      }
 
-// ===== タッチ（見えるボタン + 長押しリピート）=====
-function holdRepeat(fn,initial=180,every=90){
-  let t=null, i=null;
-  return {
-    start(){ fn(); t=setTimeout(()=>{i=setInterval(fn,every);},initial); },
-    end(){ clearTimeout(t); clearInterval(i); t=i=null; }
-  };
-}
-const leftBtn = document.getElementById('left');
-const rightBtn= document.getElementById('right');
-const rotBtn  = document.getElementById('rot');
-const softBtn = document.getElementById('soft');
-const dropBtn = document.getElementById('drop');
+      // 現在のブロック
+      cur.shape.forEach((row,dy)=>{
+        row.forEach((val,dx)=>{
+          if(val) drawBlock(cur.x+dx,cur.y+dy,cur.type);
+        });
+      });
+    }
 
-const repL=holdRepeat(()=>{ if(!coll(cur.m,cur.x-1,cur.y)) cur.x--; });
-const repR=holdRepeat(()=>{ if(!coll(cur.m,cur.x+1,cur.y)) cur.x++; });
-const repD=holdRepeat(()=> stepDown(), 120, 60);
+    // 衝突判定
+    function coll(shape, x, y) {
+      return shape.some((row,dy)=>
+        row.some((val,dx)=>{
+          if (!val) return false;
+          let nx = x+dx, ny=y+dy;
+          return nx<0||nx>=cols||ny>=rows||board[ny]?.[nx];
+        })
+      );
+    }
 
-function bindPress(el,onDown,onUp){
-  const down = ()=>onDown&&onDown();
-  const up   = ()=>onUp&&onUp();
-  el.addEventListener('touchstart',down,{passive:true});
-  el.addEventListener('touchend',up,{passive:true});
-  el.addEventListener('touchcancel',up,{passive:true});
-  el.addEventListener('mousedown',down);
-  el.addEventListener('mouseup',up);
-  el.addEventListener('mouseleave',up);
-}
-bindPress(leftBtn, ()=>repL.start(), ()=>repL.end());
-bindPress(rightBtn,()=>repR.start(), ()=>repR.end());
-bindPress(rotBtn,  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
-let pressT=0;
-bindPress(softBtn, ()=>repD.start(), ()=>repD.end());
-bindPress(dropBtn, ()=>{ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); });
+    // 固定
+    function merge() {
+      cur.shape.forEach((row,dy)=>{
+        row.forEach((val,dx)=>{
+          if(val) board[cur.y+dy][cur.x+dx]=cur.type;
+        });
+      });
+    }
 
-// ===== スタート =====
-requestAnimationFrame(loop);
-</script>
+    // ライン消去
+    function clearLines() {
+      board = board.filter(r => r.some(c=>!c));
+      while(board.length<rows) board.unshift(Array(cols).fill(null));
+    }
+
+    // 回転
+    function rotate() {
+      const shape = cur.shape[0].map((_,i)=>cur.shape.map(r=>r[i]).reverse());
+      if(!coll(shape,cur.x,cur.y)) cur.shape=shape;
+    }
+
+    // 落下
+    function drop() {
+      if(!coll(cur.shape,cur.x,cur.y+1)){
+        cur.y++;
+      } else {
+        merge();
+        clearLines();
+        newPiece();
+        if(coll(cur.shape,cur.x,cur.y)){
+          alert("GAME OVER!");
+          board=Array.from({ length: rows }, () => Array(cols).fill(null));
+        }
+      }
+    }
+
+    // 操作
+    document.addEventListener("keydown",e=>{
+      if(e.key==="ArrowLeft" && !coll(cur.shape,cur.x-1,cur.y)) cur.x--;
+      if(e.key==="ArrowRight" && !coll(cur.shape,cur.x+1,cur.y)) cur.x++;
+      if(e.key==="ArrowDown") drop();
+      if(e.key==="ArrowUp") rotate();
+      draw();
+    });
+
+    // ゲームループ
+    function loop() {
+      drop();
+      draw();
+      setTimeout(loop,500);
+    }
+
+    newPiece();
+    loop();
+  </script>
 </body>
 </html>
