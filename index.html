@@ -3,47 +3,104 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Alpinestalis – Sky Tetris</title>
+<title>Alpinestalis – Sky Tetris (No-Asset)</title>
 <style>
-  html,body {
-    margin:0;
-    height:100%;
-    overflow:hidden;
-  }
-  body {
-    background: url("sky.png") no-repeat center center fixed;
-    background-size: cover; /* 空のイラストを全画面に敷く */
-  }
-  #wrap {display:flex;justify-content:center;align-items:center;height:100%}
-  canvas {background: rgba(0,0,0,0.3);border-radius:12px}
-  #ui {
-    position:fixed;top:10px;left:12px;right:12px;
-    display:flex;justify-content:space-between;align-items:center;
-    color:#fff;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);
-  }
+  html,body{margin:0;height:100%;overflow:hidden;background:#6ec3ff}
+  #wrap{display:flex;justify-content:center;align-items:center;height:100%}
+  canvas{background:transparent;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  #ui{position:fixed;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;color:#fff;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:5}
+  #controls{position:fixed;left:0;right:0;bottom:12px;display:flex;flex-direction:column;gap:10px;align-items:center;z-index:6}
+  .row{display:flex;gap:10px}
+  .btn{min-width:64px;height:64px;border:none;border-radius:12px;background:#1e2738;color:#fff;font-size:22px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .btn:active{transform:translateY(1px)}
+  @media (min-width:760px){#controls{display:none}}
 </style>
 </head>
 <body>
+<canvas id="bg" width="360" height="720" aria-hidden="true" style="position:fixed;inset:0;width:100vw;height:100vh;z-index:0"></canvas>
+
 <div id="ui">
   <div id="score">SCORE 0</div>
-</div>
-<div id="wrap">
-  <canvas id="cv" width="300" height="600"></canvas>
+  <div id="hint">← →：移動 / ↑：回転 / ↓：ソフト / Space：ハード（画面タップでBGM）</div>
 </div>
 
-<!-- BGM -->
-<audio id="bgm" src="bgm.mp3" loop></audio>
+<div id="wrap">
+  <canvas id="cv" width="300" height="600" aria-label="tetris field"></canvas>
+</div>
+
+<div id="controls">
+  <div class="row">
+    <button id="left"  class="btn">←</button>
+    <button id="rot"   class="btn">⟳</button>
+    <button id="right" class="btn">→</button>
+  </div>
+  <div class="row">
+    <button id="soft" class="btn">⇩</button>
+    <button id="drop" class="btn" style="min-width:160px">⤓ ハードドロップ</button>
+  </div>
+</div>
 
 <script>
-/* ===== 基本設定 ===== */
+/* ========= 空の背景（グラデ＋動く雲） ========= */
+const bg = document.getElementById('bg'); const bx = bg.getContext('2d');
+function fitBG(){ bg.width=innerWidth; bg.height=innerHeight; } fitBG(); addEventListener('resize',fitBG);
+const clouds=[...Array(16)].map(()=>({x:Math.random()*innerWidth,y:Math.random()*innerHeight*0.7,v:10+Math.random()*30,s:80+Math.random()*160}));
+function drawSky(dt){
+  // gradient sky
+  const g = bx.createLinearGradient(0,0,0,bg.height);
+  g.addColorStop(0,'#87d7ff'); g.addColorStop(.6,'#6ec3ff'); g.addColorStop(1,'#c6e8ff');
+  bx.fillStyle=g; bx.fillRect(0,0,bg.width,bg.height);
+  // sun
+  bx.fillStyle='rgba(255,255,200,.55)'; bx.beginPath(); bx.arc(bg.width*0.82, bg.height*0.18, 70, 0, 7); bx.fill();
+  // clouds
+  clouds.forEach(c=>{
+    c.x += c.v*dt; if(c.x>innerWidth+200) c.x = -200;
+    bx.fillStyle='rgba(255,255,255,.85)';
+    bx.beginPath(); bx.ellipse(c.x,c.y,c.s*0.6,c.s*0.35,0,0,7); bx.ellipse(c.x-40,c.y+8,c.s*0.35,c.s*0.25,0,0,7); bx.ellipse(c.x+40,c.y+10,c.s*0.4,c.s*0.28,0,0,7); bx.fill();
+  });
+}
+
+/* ========= BGM（WebAudio内蔵：クリック/タップで開始） ========= */
+let actx=null, master=null, musicGain=null, musicTimer=null, muted=false;
+function ensureAudio(){
+  if(actx) return;
+  const AudioCtx = window.AudioContext||window.webkitAudioContext;
+  actx = new AudioCtx();
+  master = actx.createGain(); master.gain.value=.85; master.connect(actx.destination);
+  musicGain = actx.createGain(); musicGain.gain.value=.25; musicGain.connect(master);
+  startBGM();
+}
+function tone(freq, dur=.25, gain=.18, type='triangle'){
+  if(!actx||muted) return;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type; o.frequency.value=freq; o.connect(g); g.connect(master);
+  const t=actx.currentTime; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(gain,t+.02); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.start(); o.stop(t+dur+.02);
+}
+function startBGM(){
+  if(!actx) return;
+  const base=220; // A3
+  const seq=[0,7,12,14,12,7,5,3, 0,5,7,9,7,5,3,2]; // ループ
+  let i=0;
+  function loop(){
+    if(!actx) return;
+    const f = base*Math.pow(2, seq[i%seq.length]/12);
+    // ちょい和音
+    tone(f,.28,.15,'triangle'); setTimeout(()=>tone(f*1.5,.18,.10,'sine'),40);
+    i++; musicTimer=setTimeout(loop,300);
+  }
+  loop();
+}
+document.addEventListener('click', ()=>{ if(!actx){ ensureAudio(); } }, {once:true});
+
+/* ========= テトリス本体 ========= */
 const COLS=10, ROWS=20, SIZE=30;
-const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+const cv=document.getElementById("cv"), cx=cv.getContext("2d");
 cv.width=COLS*SIZE; cv.height=ROWS*SIZE;
 
 let board = Array.from({length:ROWS},()=>Array(COLS).fill(0));
 let score=0;
 
-/* ===== 形と色 ===== */
 const SHAPES = {
   I: [[1,1,1,1]],
   O: [[1,1],[1,1]],
@@ -55,93 +112,52 @@ const SHAPES = {
 const COLORS = {I:"#39e",O:"#fc3",T:"#c4f",L:"#f80",J:"#06f",S:"#0f6"};
 const TYPES = Object.keys(SHAPES);
 
-/* ===== ブロック画像 ===== */
-const BLOCK_IMG_SRC = {
-  I: "I.PNG",
-  O: "O.PNG",
-  T: "T.PNG",
-  L: "L.PNG",
-  J: "J.PNG",
-  S: "S.PNG"
-};
+/* —— 画像ブロック（I.PNG 等が同階層にあれば自動使用。無ければ色） —— */
+const BLOCK_IMG_SRC = { I:"I.PNG", O:"O.PNG", T:"T.PNG", L:"L.PNG", J:"J.PNG", S:"S.PNG" };
 const BLOCK_IMG = {};
-for (const k in BLOCK_IMG_SRC) {
-  const im = new Image();
-  im.src = BLOCK_IMG_SRC[k] + "?v=1"; // キャッシュ避け
-  BLOCK_IMG[k] = im;
-}
+for (const k in BLOCK_IMG_SRC) { const im=new Image(); im.src=BLOCK_IMG_SRC[k]+"?v=1"; BLOCK_IMG[k]=im; }
 
-/* ===== ピース生成 ===== */
-function newPiece(){
-  const t=TYPES[(Math.random()*TYPES.length)|0];
-  return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0};
-}
+function newPiece(){ const t=TYPES[(Math.random()*TYPES.length)|0]; return {t, m:SHAPES[t].map(r=>r.slice()), x:3, y:0}; }
 let cur=newPiece();
 
-/* ===== 回転・衝突 ===== */
-function rot(m){
-  const h=m.length,w=m[0].length;
-  const r=[...Array(w)].map(()=>Array(h).fill(0));
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x];
-  return r;
-}
+function rot(m){ const h=m.length,w=m[0].length; const r=[...Array(w)].map(()=>Array(h).fill(0));
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++) r[x][h-1-y]=m[y][x]; return r; }
 function coll(m,px,py){
   for(let y=0;y<m.length;y++)for(let x=0;x<m[0].length;x++){
-    if(!m[y][x]) continue;
-    const nx=px+x, ny=py+y;
+    if(!m[y][x]) continue; const nx=px+x, ny=py+y;
     if(nx<0||nx>=COLS||ny>=ROWS) return true;
     if(ny>=0 && board[ny][nx]) return true;
-  }
-  return false;
+  } return false;
 }
-
-/* ===== 固定・ライン消去 ===== */
 function merge(){
-  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++){
-    if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
-  }
-  for(let y=ROWS-1;y>=0;y--){
-    if(board[y].every(v=>v)){
-      board.splice(y,1);
-      board.unshift(Array(COLS).fill(0));
-      score+=100; y++;
-    }
-  }
+  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) board[cur.y+y][cur.x+x]=cur.t;
+  for(let y=ROWS-1;y>=0;y--){ if(board[y].every(v=>v)){ board.splice(y,1); board.unshift(Array(COLS).fill(0)); score+=100; y++; } }
   document.getElementById('score').textContent=`SCORE ${score}`;
-  cur=newPiece();
-  if(coll(cur.m,cur.x,cur.y)){ // Game Over
-    board=Array.from({length:ROWS},()=>Array(COLS).fill(0));
-    score=0; document.getElementById('score').textContent='SCORE 0';
-  }
+  cur=newPiece(); if(coll(cur.m,cur.x,cur.y)){ board=Array.from({length:ROWS},()=>Array(COLS).fill(0)); score=0; document.getElementById('score').textContent='SCORE 0'; }
 }
-
-/* ===== 描画 ===== */
 function drawCell(x,y,t){
-  const gx=x*SIZE, gy=y*SIZE;
-  const im = BLOCK_IMG[t];
-  if (im && im.complete && im.naturalWidth) {
-    ctx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);
-  } else {
-    ctx.fillStyle = COLORS[t]||"#888";
-    ctx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2);
-  }
+  const gx=x*SIZE, gy=y*SIZE, im=BLOCK_IMG[t];
+  if (im && im.complete && im.naturalWidth) cx.drawImage(im, gx+2, gy+2, SIZE-4, SIZE-4);
+  else { cx.fillStyle=COLORS[t]||"#888"; cx.fillRect(gx+1, gy+1, SIZE-2, SIZE-2); }
 }
-function render(){
-  ctx.clearRect(0,0,cv.width,cv.height);
+function renderGame(){
+  cx.clearRect(0,0,cv.width,cv.height);
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(board[y][x]) drawCell(x,y,board[y][x]);
   for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[0].length;x++) if(cur.m[y][x]) drawCell(cur.x+x,cur.y+y,cur.t);
 }
 
-/* ===== 進行 ===== */
-function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else { merge(); } }
-let last=0, acc=0;
+/* —— ループ（背景も一緒に回す） —— */
+let last=0, acc=0, lastBG=performance.now();
+function stepDown(){ if(!coll(cur.m,cur.x,cur.y+1)) cur.y++; else merge(); }
 function loop(ts){
-  if(!last) last=ts; const dt=ts-last; last=ts;
-  const gravity=520; acc+=dt; if(acc>=gravity){ acc=0; stepDown(); }
-  render(); requestAnimationFrame(loop);
+  // BG
+  const now=performance.now(); const dt=(now-lastBG)/1000; lastBG=now; drawSky(dt);
+  // Game
+  if(!last) last=ts; const dtg=ts-last; last=ts; const gravity=520; acc+=dtg; if(acc>=gravity){ acc=0; stepDown(); }
+  renderGame(); requestAnimationFrame(loop);
 }
 
-/* ===== 操作 ===== */
+/* —— 操作 —— */
 addEventListener('keydown',e=>{
   if(e.code==='ArrowLeft' && !coll(cur.m,cur.x-1,cur.y)) cur.x--;
   if(e.code==='ArrowRight'&& !coll(cur.m,cur.x+1,cur.y)) cur.x++;
@@ -149,12 +165,18 @@ addEventListener('keydown',e=>{
   if(e.code==='ArrowUp'){ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; }
   if(e.code==='Space'){ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); }
 });
+function holdRepeat(fn,initial=180,every=90){ let t=null,i=null; return {start(){fn(); t=setTimeout(()=>{i=setInterval(fn,every);},initial);}, end(){clearTimeout(t); clearInterval(i); t=i=null;}}}
+const repL=holdRepeat(()=>{ if(!coll(cur.m,cur.x-1,cur.y)) cur.x--; });
+const repR=holdRepeat(()=>{ if(!coll(cur.m,cur.x+1,cur.y)) cur.x++; });
+const repD=holdRepeat(()=> stepDown(), 120, 60);
+function bind(el,onDown,onUp){ const d=()=>onDown&&onDown(), u=()=>onUp&&onUp(); el.addEventListener('touchstart',d,{passive:true}); el.addEventListener('touchend',u,{passive:true}); el.addEventListener('touchcancel',u,{passive:true}); el.addEventListener('mousedown',d); el.addEventListener('mouseup',u); el.addEventListener('mouseleave',u); }
+bind(document.getElementById('left'), ()=>repL.start(), ()=>repL.end());
+bind(document.getElementById('right'),()=>repR.start(), ()=>repR.end());
+bind(document.getElementById('rot'),  ()=>{ const r=rot(cur.m); if(!coll(r,cur.x,cur.y)) cur.m=r; });
+bind(document.getElementById('soft'), ()=>repD.start(), ()=>repD.end());
+bind(document.getElementById('drop'), ()=>{ while(!coll(cur.m,cur.x,cur.y+1)) cur.y++; merge(); });
 
-/* ===== BGM再生 ===== */
-const bgm = document.getElementById("bgm");
-document.body.addEventListener("click", ()=>{ bgm.play(); }, {once:true});
-
-/* ===== スタート ===== */
+/* —— スタート —— */
 requestAnimationFrame(loop);
 </script>
 </body>
