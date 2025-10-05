@@ -7,7 +7,8 @@
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
   #wrap{position:fixed;inset:0}
-  #bg,#stage{position:absolute;top:0;left:0;right:0;bottom:0;margin:auto;touch-action:none;display:block;}
+  /* キャンバスは絶対配置で重ねる＋z-index */
+  #bg,#stage{position:absolute;inset:0;margin:auto;touch-action:none;display:block}
   #bg{z-index:1}
   #stage{z-index:2}
   #hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;display:flex;justify-content:space-between;align-items:center;color:#123}
@@ -16,165 +17,241 @@
   #drop{background:#ff5c97;color:#fff;margin-right:6px}
   #retry{background:#79c6ff;color:#003}
   #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
-  #overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);color:#fff;font-size:24px;display:flex;justify-content:center;align-items:center;z-index:4;}
+  /* 初回タップでサウンド解放のオーバーレイ */
+  #gate{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.15);color:#fff;font-weight:900;font-size:28px;
+    text-shadow:0 3px 12px rgba(0,0,0,.4);z-index:4
+  }
+  #gameover{
+    position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    color:#fff;font-weight:900;font-size:40px;text-shadow:0 4px 16px #0008;z-index:5
+  }
 </style>
 </head>
 <body>
 <div id="hud">
-  <div><span id="score">SCORE 0</span><span id="tip">　タップでサウンド解放 / スワイプで移動 → DROPで落とす</span></div>
+  <div><span id="score">SCORE 0</span><span id="tip">　タップでサウンド解放 / スワイプで移動 → DROPボタンで落とす</span></div>
   <div>
     <button id="drop">DROP</button>
     <button id="retry">Retry</button>
   </div>
 </div>
+
 <div id="wrap">
+  <!-- 背景（下層） -->
   <canvas id="bg" width="420" height="720"></canvas>
+  <!-- 物理＆スプライト（上層） -->
   <canvas id="stage" width="420" height="720"></canvas>
 </div>
 <div id="title">ustarp969GAME</div>
-<div id="overlay">TAP TO ENABLE SOUND</div>
+<div id="gate">TAP TO ENABLE SOUND</div>
+<div id="gameover">GAME OVER</div>
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-const W=420,H=720;
-const bg=document.getElementById('bg'),bctx=bg.getContext('2d');
+/* ===== 基本サイズ ===== */
+const W=420, H=720;
+
+/* ===== 背景（下のキャンバス） ===== */
+const bg = document.getElementById('bg');
+const bctx = bg.getContext('2d');
 function drawBG(t=0){
   const g=bctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,"#bfe7ff");g.addColorStop(1,"#ffe3f0");
-  bctx.fillStyle=g;bctx.fillRect(0,0,W,H);
-  bctx.globalAlpha=.7;
+  g.addColorStop(0,"#bfe7ff"); g.addColorStop(0.55,"#e9f6ff"); g.addColorStop(1,"#ffe3f0");
+  bctx.fillStyle=g; bctx.fillRect(0,0,W,H);
+  // 雲
+  bctx.globalAlpha=.65;
   for(let i=0;i<5;i++){
-    const x=(t*12+i*120)%(W+160)-80,y=60+i*46;
-    bctx.fillStyle="#fff";bctx.beginPath();
+    const x=(t*12+i*120)%(W+160)-80, y=60+i*46;
+    bctx.fillStyle="#fff";
+    bctx.beginPath();
     bctx.ellipse(x,y,38,18,0,0,Math.PI*2);
+    bctx.ellipse(x+24,y+6,26,12,0,0,Math.PI*2);
+    bctx.ellipse(x-22,y+8,22,10,0,0,Math.PI*2);
     bctx.fill();
   }
   bctx.globalAlpha=1;
-  bctx.save();bctx.translate(W/2,H-42);
+  // 透かしロゴ
+  bctx.save();
+  bctx.translate(W/2,H-42);
   bctx.fillStyle="rgba(0,0,0,.12)";
-  bctx.font="900 22px system-ui,-apple-system";
-  bctx.textAlign="center";bctx.fillText("ustarp969GAME",0,0);
+  bctx.font="900 22px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
+  bctx.textAlign="center";
+  bctx.fillText("ustarp969GAME",0,0);
   bctx.restore();
 }
-(function loop(){drawBG(performance.now()/1000);requestAnimationFrame(loop);})();
+(function loop(){ drawBG(performance.now()/1000); requestAnimationFrame(loop); })();
 
-/* ===== Audio ===== */
-let actx,master,bgmPlaying=false;
+/* ===== オーディオ ===== */
+let actx=null, master=null;
 function initAudio(){
+  if(actx) return;
   const AC=window.AudioContext||window.webkitAudioContext;
-  actx=new AC();master=actx.createGain();master.gain.value=.12;
+  actx=new AC();
+  master=actx.createGain();
+  master.gain.value=0.25; // ★音量UP
   master.connect(actx.destination);
+  bgmStart();
 }
-function playBGM(){
-  if(!actx) initAudio();
-  if(bgmPlaying) return;
-  bgmPlaying=true;
-  const base=261.63,seq=[0,2,4,7,9,7,4,2,0,5,7,9,12,9,7,5];
+function env(f=440, len=0.25, v=0.25, type='triangle'){
+  // ワンショット効果音
+  if(!actx) return;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type; o.frequency.value=f; o.connect(g); g.connect(master);
+  const t=actx.currentTime;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(v, t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+len);
+  o.start(t); o.stop(t+len+0.02);
+}
+function sfxDrop(){ env(220,0.22,0.35,'square'); }
+function sfxLand(){ env(120,0.18,0.28,'sawtooth'); env(300,0.12,0.18,'triangle'); }
+function sfxOver(){ env(160,0.5,0.35,'sine'); env(110,0.6,0.30,'triangle'); }
+
+function bgmStart(){
+  if(!actx) return;
+  const base=261.63;
+  const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5];
   let i=0;
   function note(semi,len=.36,vol=.14,type='triangle'){
-    const o=actx.createOscillator(),g=actx.createGain();
-    o.type=type;o.frequency.value=base*Math.pow(2,semi/12);
-    o.connect(g);g.connect(master);
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value=base*Math.pow(2,semi/12); o.connect(g); g.connect(master);
     const t=actx.currentTime;
-    g.gain.setValueAtTime(.0001,t);
-    g.gain.exponentialRampToValueAtTime(vol,t+.03);
-    g.gain.exponentialRampToValueAtTime(.0001,t+len);
-    o.start(t);o.stop(t+len+.02);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol, t+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+len);
+    o.start(t); o.stop(t+len+0.02);
   }
   (function seqLoop(){
-    note(seq[i%seq.length]);if(i%4===0)note(-12,.5,.1,'sine');
-    i++;setTimeout(seqLoop,340);
+    if(!actx) return;
+    note(seq[i%seq.length], .34, .16, 'triangle');
+    if(i%4===0) note(-12,.5,.10,'sine');
+    i++; setTimeout(seqLoop, 340);
   })();
 }
-function playSE(type="drop"){
-  if(!actx)return;
-  const o=actx.createOscillator(),g=actx.createGain();
-  o.connect(g);g.connect(master);
-  const t=actx.currentTime;
-  if(type==="drop"){o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(180,t+.2);}
-  else if(type==="hit"){o.frequency.setValueAtTime(600,t);o.frequency.exponentialRampToValueAtTime(80,t+.3);}
-  else if(type==="over"){o.frequency.setValueAtTime(120,t);o.frequency.exponentialRampToValueAtTime(30,t+.5);}
-  g.gain.setValueAtTime(.15,t);g.gain.exponentialRampToValueAtTime(.001,t+.3);
-  o.start(t);o.stop(t+.4);
-}
+document.getElementById('gate').addEventListener('pointerdown', (e)=>{
+  e.preventDefault();
+  initAudio();
+  e.currentTarget.style.display='none';
+}, {passive:false});
 
-/* ===== Matter.js ===== */
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite}=Matter;
-const stage=document.getElementById('stage');
-const engine=Engine.create({gravity:{x:0,y:.95}});
-const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
-Render.run(render);Runner.run(Runner.create(),engine);
+/* ===== Matter.js（上のキャンバス） ===== */
+const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices} = Matter;
+const stage = document.getElementById('stage');
+const engine = Engine.create({gravity:{x:0,y:.95}});
+const render = Render.create({canvas:stage, engine, options:{width:W,height:H,wireframes:false, background:'transparent'}});
+Render.run(render);
+Runner.run(Runner.create(), engine);
 
-const bikeVerts = Matter.Vertices.fromPath("0 0 70 -16 110 -8 140 -18 170 -6 200 -12 230 0 180 16 120 14 60 10");
-const bikeY=560;
-const bike=Bodies.fromVertices(W/2,bikeY,bikeVerts,{isStatic:true,render:{fillStyle:"#2f2f2f"}});
-const wheelL=Bodies.circle(W/2-60,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a"}});
-const wheelR=Bodies.circle(W/2+90,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a"}});
+/* ---- バイク台（固定） ---- */
+const bikeVerts = Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
+const bikeY = 560;
+const bike = Bodies.fromVertices(W/2, bikeY, bikeVerts,{isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
+const wheelL = Bodies.circle(W/2-60, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+const wheelR = Bodies.circle(W/2+90, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
 World.add(engine.world,[bike,wheelL,wheelR]);
+// サイド壁
 World.add(engine.world,[
   Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}}),
   Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}})
 ]);
 
-const ASSETS=["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
+/* ---- 画像プリロード（直下・大文字） ---- */
+const ASSETS = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
 function preload(list){
   return Promise.all(list.map(name=>new Promise(res=>{
     const img=new Image();
-    img.onload=()=>res({ok:true,name,img,w:img.naturalWidth,h:img.naturalHeight,src:"./"+name});
-    img.onerror=()=>res({ok:false,name});
-    img.src="./"+name+"?v=2";
+    img.onload=()=>res({ok:true, name, img, w:img.naturalWidth, h:img.naturalHeight, src:"./"+name});
+    img.onerror=()=>res({ok:false, name, w:80, h:100, src:"./"+name});
+    img.src="./"+name+"?v=3";
   })));
 }
 
-let photos=[],qi=0,cur=null,followX=W/2,score=0,over=false;
+/* ---- ゲーム状態 ---- */
+const MAX_W = 56; // 画像の表示幅（小さめ）
+let photos=[], qi=0, cur=null, followX=W/2, score=0, over=false;
 const scoreEl=document.getElementById('score');
-function setScore(n){score=n;scoreEl.textContent="SCORE "+score;}
+const overEl=document.getElementById('gameover');
+function setScore(n){ score=n; scoreEl.textContent="SCORE "+score; }
+
 function makeBody(p,x,y,isStatic=true){
-  const ratio=p.h/p.w,w=56,h=w*ratio,opt={isStatic,restitution:0.08,friction:0.7};
-  if(p.ok)opt.render={sprite:{texture:p.src,xScale:w/p.w,yScale:h/p.h}};
-  else opt.render={fillStyle:"#ffb3d1"};
+  const ratio = p.h/p.w;
+  const w = Math.min(MAX_W, p.w || MAX_W), h = w*ratio;
+  const opt = { isStatic, restitution:0.08, friction:0.7 };
+  if(p.ok){
+    opt.render={ sprite:{ texture:p.src, xScale:w/p.w, yScale:h/p.h } };
+  }else{
+    opt.render={ fillStyle:"#ffb3d1", strokeStyle:"#c03", lineWidth:1.5 };
+  }
   return Bodies.rectangle(x,y,w,h,opt);
 }
-function spawn(){if(over)return;const p=photos[qi++%photos.length];cur=makeBody(p,followX,80,true);World.add(engine.world,cur);}
-function drop(){if(!cur||over)return;Body.setStatic(cur,false);playSE("drop");cur=null;setScore(score+1);setTimeout(spawn,600);}
+
+function spawn(){
+  if(over) return;
+  const p = photos[qi++ % photos.length];
+  cur = makeBody(p, followX, 80, true);    // まず静止で出す
+  World.add(engine.world, cur);
+}
+
+function drop(){
+  if(!cur || over) return;
+  Body.setStatic(cur,false);               // 動的化して落下
+  sfxDrop();
+  cur=null; setScore(score+1);
+  setTimeout(spawn, 500);
+}
+
 function reset(){
   Composite.allBodies(engine.world).forEach(b=>{
-    if(![bike,wheelL,wheelR].includes(b))World.remove(engine.world,b);
+    if(![bike,wheelL,wheelR].includes(b)) World.remove(engine.world,b);
   });
-  qi=0;over=false;setScore(0);spawn();
+  qi=0; over=false; setScore(0);
+  overEl.style.display='none';
+  spawn();
 }
-stage.addEventListener('pointermove',e=>{
-  const r=stage.getBoundingClientRect();
-  followX=Math.max(30,Math.min(W-30,(e.clientX-r.left)*(W/r.width)));
-});
-document.getElementById('drop').onclick=()=>{drop()};
-document.getElementById('retry').onclick=()=>{reset()};
-stage.addEventListener('pointerdown',()=>{drop()});
 
-Events.on(engine,'beforeUpdate',()=>{
-  if(cur&&cur.isStatic){Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.25,y:cur.position.y});}
+/* ---- 入力（スワイプ感度UP / DROPはボタンのみ） ---- */
+const speed=0.35; // 追従スピード（上げると機敏）
+stage.addEventListener('pointermove', (e)=>{
+  const r=stage.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (W/r.width);
+  followX = Math.max(30, Math.min(W-30, x));
+}, {passive:true});
+
+// ★DROPはボタンだけ
+document.getElementById('drop').addEventListener('click', (e)=>{
+  initAudio(); // ここでも音解放しておく
+  drop();
 });
-Events.on(engine,'afterUpdate',()=>{
-  const fallen=Composite.allBodies(engine.world).find(b=>!b.isStatic&&b.position.y>660);
-  if(fallen&&!over){
-    over=true;playSE("over");
-    const div=document.createElement('div');
-    div.textContent="GAME OVER";
-    Object.assign(div.style,{position:"fixed",inset:0,display:"flex",justifyContent:"center",alignItems:"center",
-      fontSize:"40px",fontWeight:"900",color:"#fff",textShadow:"0 3px 10px #000",zIndex:10});
-    document.body.appendChild(div);
-    setTimeout(()=>div.remove(),2000);
+document.getElementById('retry').onclick = reset;
+
+/* ---- 追従・着地・ゲームオーバー処理 ---- */
+Events.on(engine,'beforeUpdate',()=>{
+  if(cur && cur.isStatic){
+    Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*speed, y:cur.position.y});
   }
 });
+Events.on(engine,'afterUpdate',()=>{
+  // 一番下まで落ちた動的ボディがあればゲームオーバー
+  const fallen = Composite.allBodies(engine.world).find(b=>!b.isStatic && b.position.y>660);
+  if(fallen && !over){
+    over=true;
+    sfxOver();
+    overEl.style.display='flex';
+  }
+});
+// 着地音（速度が小さい衝突だけ）
+Events.on(engine,'collisionStart',(evt)=>{
+  evt.pairs.forEach(p=>{
+    const a=p.bodyA, b=p.bodyB;
+    const dyn = (!a.isStatic && b.isStatic) || (!b.isStatic && a.isStatic);
+    if(dyn && p.collision.depth>0.2){ sfxLand(); }
+  });
+});
 
-/* ===== Start ===== */
-const overlay=document.getElementById('overlay');
-overlay.addEventListener('click',()=>{
-  overlay.style.display='none';
-  initAudio();
-  playBGM();
-  preload(ASSETS).then(list=>{photos=list;setScore(0);spawn();});
-},{once:true});
+/* ---- スタート ---- */
+preload(ASSETS).then(list=>{ photos=list; setScore(0); spawn(); });
 </script>
 </body>
 </html>
