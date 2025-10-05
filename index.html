@@ -3,28 +3,28 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>ustarp969GAME – Stage Mix Edition</title>
+<title>ustarp969GAME – Balance</title>
 <style>
-html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;
-  font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;}
-#wrap{position:fixed;inset:0}
-#bg,#stage{
-  position:absolute;inset:0;margin:auto;touch-action:none;display:block;
-}
-#bg{z-index:1}
-#stage{z-index:2}
-#hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;
-  display:flex;justify-content:space-between;align-items:center;color:#123}
-#tip{font-size:13px;opacity:.75;margin-left:8px}
-button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
-#drop{background:#ff5c97;color:#fff;margin-right:6px}
-#retry{background:#79c6ff;color:#003}
-#title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;
-  font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
-#msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-  color:#fff;font-size:42px;font-weight:900;text-shadow:0 3px 10px #0008;
-  pointer-events:none;opacity:0;transition:opacity .6s ease;z-index:4;}
-#msg.show{opacity:1;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;
+    font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;}
+  #wrap{position:fixed;inset:0}
+  #bg,#stage{
+    position:absolute;inset:0;margin:auto;touch-action:none;display:block;
+  }
+  #bg{z-index:1}
+  #stage{z-index:2}
+  #hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;
+    display:flex;justify-content:space-between;align-items:center;color:#123}
+  #tip{font-size:13px;opacity:.75;margin-left:8px}
+  button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
+  #drop{background:#ff5c97;color:#fff;margin-right:6px}
+  #retry{background:#79c6ff;color:#003}
+  #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;
+    font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
+  #msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:42px;font-weight:900;text-shadow:0 3px 10px #0008;
+    pointer-events:none;opacity:0;transition:opacity .6s ease;z-index:4;}
+  #msg.show{opacity:1;}
 </style>
 </head>
 <body>
@@ -49,7 +49,7 @@ const W=420,H=720;
 const bg=document.getElementById("bg"),bctx=bg.getContext("2d");
 function drawBG(t=0){
   const g=bctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,"#bfe7ff");g.addColorStop(1,"#ffe3f0");
+  g.addColorStop(0,"#bfe7ff");g.addColorStop(0.55,"#e9f6ff");g.addColorStop(1,"#ffe3f0");
   bctx.fillStyle=g;bctx.fillRect(0,0,W,H);
   bctx.globalAlpha=.6;
   for(let i=0;i<5;i++){
@@ -60,10 +60,13 @@ function drawBG(t=0){
     bctx.fill();
   }
   bctx.globalAlpha=1;
-  bctx.font="900 22px system-ui";
+  bctx.save();
+  bctx.translate(W/2,H-42);
   bctx.fillStyle="rgba(0,0,0,.12)";
+  bctx.font="900 22px system-ui";
   bctx.textAlign="center";
-  bctx.fillText("ustarp969GAME",W/2,H-42);
+  bctx.fillText("ustarp969GAME",0,0);
+  bctx.restore();
 }
 (function loop(){drawBG(performance.now()/1000);requestAnimationFrame(loop);})();
 
@@ -96,46 +99,27 @@ function se(freq=440,dur=.25,vol=.2){
 }
 
 /* ===== Matter.js ===== */
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices}=Matter;
+const {Engine,Render,Runner,World,Bodies,Body,Events,Composite}=Matter;
 const stage=document.getElementById("stage");
 const engine=Engine.create({gravity:{x:0,y:.95}});
 const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
 Render.run(render);Runner.run(Runner.create(),engine);
 
-/* ===== 台の形バリエーション ===== */
-const BASES=[
-  // 1. 平ら
-  "0 0  50 -2 100 -1 150 -2 200 -1 250 0 300 0 250 2 150 2 50 2",
-  // 2. カーブ
-  "0 5 40 0 80 -3 120 -5 160 -3 200 0 240 5 280 8 320 10",
-  // 3. 片側上がり
-  "0 0 50 -4 100 -8 150 -12 200 -16 250 -20 300 -24",
-  // 4. 山形
-  "0 0 70 -8 140 -16 210 -8 280 0",
-  // 5. 波形
-  "0 0 40 -5 80 0 120 5 160 0 200 -5 240 0 280 5 320 0"
-];
-
-let base, wheelL, wheelR;
-function createBase(){
-  if(base){ World.remove(engine.world,[base,wheelL,wheelR]); }
-  const verts=Vertices.fromPath(BASES[Math.floor(Math.random()*BASES.length)]);
-  base=Bodies.fromVertices(W/2,580,verts,{isStatic:true,render:{fillStyle:"#333"}});
-  wheelL=Bodies.circle(W/2-90,600,24,{isStatic:true,render:{fillStyle:"#444"}});
-  wheelR=Bodies.circle(W/2+90,600,24,{isStatic:true,render:{fillStyle:"#444"}});
-  World.add(engine.world,[base,wheelL,wheelR]);
-}
-createBase();
+/* ===== 台（より平ら） ===== */
+const flatVerts = Matter.Vertices.fromPath("0 0 50 -2 100 -1 150 -2 200 -1 250 0 300 0 250 2 150 2 50 2");
+const base = Bodies.fromVertices(W/2,580,flatVerts,{isStatic:true,render:{fillStyle:"#333"}});
+const wheelL = Bodies.circle(W/2-90,600,24,{isStatic:true,render:{fillStyle:"#444"}});
+const wheelR = Bodies.circle(W/2+90,600,24,{isStatic:true,render:{fillStyle:"#444"}});
+World.add(engine.world,[base,wheelL,wheelR]);
 World.add(engine.world,[
   Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}}),
   Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}})
 ]);
 
-/* ===== ゲーム ===== */
+/* ===== ゲームオブジェクト ===== */
 const COLORS=["#6cf","#fc6","#f66","#6f9","#f9f","#9ff"];
 let cur=null,followX=W/2,score=0,over=false;
 const scoreEl=document.getElementById("score");
-const msg=document.getElementById("msg");
 function setScore(n){score=n;scoreEl.textContent="スコア "+score;}
 
 function spawn(){
@@ -145,27 +129,24 @@ function spawn(){
 }
 function drop(){
   if(!cur||over)return;
-  Body.setStatic(cur,false);se(800,.1);
-  cur=null;setScore(score+1);
+  Body.setStatic(cur,false);se(800,.1);cur=null;
+  setScore(score+1);
   setTimeout(spawn,500);
 }
 function reset(){
   Composite.allBodies(engine.world).forEach(b=>{
     if(![base,wheelL,wheelR].includes(b))World.remove(engine.world,b);
   });
-  createBase();
   over=false;setScore(0);
   showMsg("さぁいきますん。");
   spawn();
 }
 document.getElementById("drop").onclick=drop;
 document.getElementById("retry").onclick=reset;
-
 stage.addEventListener("pointermove",e=>{
   const r=stage.getBoundingClientRect();
   followX=Math.max(30,Math.min(W-30,(e.clientX-r.left)*(W/r.width)));
 });
-
 Events.on(engine,"beforeUpdate",()=>{
   if(cur&&cur.isStatic){
     Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.25,y:cur.position.y});
@@ -180,6 +161,7 @@ Events.on(engine,"afterUpdate",()=>{
 });
 
 /* ===== メッセージ表示 ===== */
+const msg=document.getElementById("msg");
 function showMsg(text){
   msg.textContent=text;
   msg.classList.add("show");
