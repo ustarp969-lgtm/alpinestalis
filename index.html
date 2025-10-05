@@ -3,30 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>ustarp969GAME – Balance</title>
+<title>ustarp969GAME – Balance Fixed</title>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
   #wrap{position:fixed;inset:0}
-  /* キャンバスは絶対配置で重ねる＋z-index */
   #bg,#stage{position:absolute;inset:0;margin:auto;touch-action:none;display:block}
   #bg{z-index:1}
   #stage{z-index:2}
-  #hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;display:flex;justify-content:space-between;align-items:center;color:#123}
+  /* HUDを最前面に上げる */
+  #hud{position:fixed;top:10px;left:10px;right:10px;z-index:10;display:flex;justify-content:space-between;align-items:center;color:#123}
   #tip{font-size:13px;opacity:.75;margin-left:8px}
   button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
   #drop{background:#ff5c97;color:#fff;margin-right:6px}
   #retry{background:#79c6ff;color:#003}
-  #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
-  /* 初回タップでサウンド解放のオーバーレイ */
-  #gate{
-    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.15);color:#fff;font-weight:900;font-size:28px;
-    text-shadow:0 3px 12px rgba(0,0,0,.4);z-index:4
-  }
-  #gameover{
-    position:fixed;inset:0;display:none;align-items:center;justify-content:center;
-    color:#fff;font-weight:900;font-size:40px;text-shadow:0 4px 16px #0008;z-index:5
-  }
+  #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:3;pointer-events:none}
+  /* サウンド解放オーバーレイ */
+  #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.15);color:#fff;font-weight:900;font-size:28px;text-shadow:0 3px 12px #0008;z-index:8}
+  /* GAME OVER は見せるだけ（クリックはスルー） */
+  #gameover{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:40px;text-shadow:0 4px 16px #0008;z-index:7;pointer-events:none}
 </style>
 </head>
 <body>
@@ -39,9 +33,7 @@
 </div>
 
 <div id="wrap">
-  <!-- 背景（下層） -->
   <canvas id="bg" width="420" height="720"></canvas>
-  <!-- 物理＆スプライト（上層） -->
   <canvas id="stage" width="420" height="720"></canvas>
 </div>
 <div id="title">ustarp969GAME</div>
@@ -50,17 +42,15 @@
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-/* ===== 基本サイズ ===== */
+/* ===== サイズ ===== */
 const W=420, H=720;
 
-/* ===== 背景（下のキャンバス） ===== */
-const bg = document.getElementById('bg');
-const bctx = bg.getContext('2d');
+/* ===== 背景 ===== */
+const bg=document.getElementById('bg'); const bctx=bg.getContext('2d');
 function drawBG(t=0){
   const g=bctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,"#bfe7ff"); g.addColorStop(0.55,"#e9f6ff"); g.addColorStop(1,"#ffe3f0");
   bctx.fillStyle=g; bctx.fillRect(0,0,W,H);
-  // 雲
   bctx.globalAlpha=.65;
   for(let i=0;i<5;i++){
     const x=(t*12+i*120)%(W+160)-80, y=60+i*46;
@@ -72,84 +62,69 @@ function drawBG(t=0){
     bctx.fill();
   }
   bctx.globalAlpha=1;
-  // 透かしロゴ
-  bctx.save();
-  bctx.translate(W/2,H-42);
+  bctx.save(); bctx.translate(W/2,H-42);
   bctx.fillStyle="rgba(0,0,0,.12)";
   bctx.font="900 22px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
-  bctx.textAlign="center";
-  bctx.fillText("ustarp969GAME",0,0);
+  bctx.textAlign="center"; bctx.fillText("ustarp969GAME",0,0);
   bctx.restore();
 }
 (function loop(){ drawBG(performance.now()/1000); requestAnimationFrame(loop); })();
 
-/* ===== オーディオ ===== */
+/* ===== オーディオ（音量UP） ===== */
 let actx=null, master=null;
 function initAudio(){
   if(actx) return;
   const AC=window.AudioContext||window.webkitAudioContext;
   actx=new AC();
   master=actx.createGain();
-  master.gain.value=0.25; // ★音量UP
+  master.gain.value=0.42; // ★ここで全体音量UP
   master.connect(actx.destination);
-  bgmStart();
+  // iOS解放：無音バッファ
+  const buf=actx.createBuffer(1,1,actx.sampleRate);
+  const src=actx.createBufferSource();
+  src.buffer=buf; src.connect(master); src.start();
+  actx.resume && actx.resume();
+  startBGM();
 }
-function env(f=440, len=0.25, v=0.25, type='triangle'){
-  // ワンショット効果音
+function blip(freq,len=.25,vol=.25,type='triangle'){
   if(!actx) return;
   const o=actx.createOscillator(), g=actx.createGain();
-  o.type=type; o.frequency.value=f; o.connect(g); g.connect(master);
+  o.type=type; o.frequency.value=freq; o.connect(g); g.connect(master);
   const t=actx.currentTime;
   g.gain.setValueAtTime(0.0001,t);
-  g.gain.exponentialRampToValueAtTime(v, t+0.02);
-  g.gain.exponentialRampToValueAtTime(0.0001, t+len);
+  g.gain.exponentialRampToValueAtTime(vol,t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+len);
   o.start(t); o.stop(t+len+0.02);
 }
-function sfxDrop(){ env(220,0.22,0.35,'square'); }
-function sfxLand(){ env(120,0.18,0.28,'sawtooth'); env(300,0.12,0.18,'triangle'); }
-function sfxOver(){ env(160,0.5,0.35,'sine'); env(110,0.6,0.30,'triangle'); }
-
-function bgmStart(){
+function sfxDrop(){ blip(260,0.20,0.36,'square'); blip(520,0.12,0.22,'triangle'); }
+function sfxLand(){ blip(180,0.14,0.28,'sawtooth'); }
+function sfxOver(){ blip(200,0.5,0.34,'triangle'); blip(120,0.6,0.30,'sine'); }
+function startBGM(){
   if(!actx) return;
-  const base=261.63;
-  const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5];
-  let i=0;
-  function note(semi,len=.36,vol=.14,type='triangle'){
-    const o=actx.createOscillator(), g=actx.createGain();
-    o.type=type; o.frequency.value=base*Math.pow(2,semi/12); o.connect(g); g.connect(master);
-    const t=actx.currentTime;
-    g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(vol, t+0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, t+len);
-    o.start(t); o.stop(t+len+0.02);
-  }
-  (function seqLoop(){
+  const base=261.63; const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5]; let i=0;
+  (function loop(){
     if(!actx) return;
-    note(seq[i%seq.length], .34, .16, 'triangle');
-    if(i%4===0) note(-12,.5,.10,'sine');
-    i++; setTimeout(seqLoop, 340);
+    blip(base*Math.pow(2, seq[i%seq.length]/12), .34, .18, 'triangle');
+    if(i%4===0) blip(base/2, .48, .12, 'sine');
+    i++; setTimeout(loop, 340);
   })();
 }
-document.getElementById('gate').addEventListener('pointerdown', (e)=>{
-  e.preventDefault();
-  initAudio();
-  e.currentTarget.style.display='none';
-}, {passive:false});
+document.getElementById('gate').addEventListener('pointerdown',(e)=>{
+  e.preventDefault(); initAudio(); e.currentTarget.style.display='none';
+},{passive:false});
 
-/* ===== Matter.js（上のキャンバス） ===== */
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices} = Matter;
-const stage = document.getElementById('stage');
-const engine = Engine.create({gravity:{x:0,y:.95}});
-const render = Render.create({canvas:stage, engine, options:{width:W,height:H,wireframes:false, background:'transparent'}});
-Render.run(render);
-Runner.run(Runner.create(), engine);
+/* ===== Matter.js ===== */
+const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices}=Matter;
+const stage=document.getElementById('stage');
+const engine=Engine.create({gravity:{x:0,y:.95}});
+const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
+Render.run(render); Runner.run(Runner.create(),engine);
 
-/* ---- バイク台（固定） ---- */
-const bikeVerts = Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
-const bikeY = 560;
-const bike = Bodies.fromVertices(W/2, bikeY, bikeVerts,{isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
-const wheelL = Bodies.circle(W/2-60, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
-const wheelR = Bodies.circle(W/2+90, 590, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+/* ---- 固定台（バイク） ---- */
+const bikeVerts=Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
+const bike=Bodies.fromVertices(W/2,560,bikeVerts,{isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
+const wheelL=Bodies.circle(W/2-60,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+const wheelR=Bodies.circle(W/2+90,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
 World.add(engine.world,[bike,wheelL,wheelR]);
 // サイド壁
 World.add(engine.world,[
@@ -157,96 +132,106 @@ World.add(engine.world,[
   Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}})
 ]);
 
-/* ---- 画像プリロード（直下・大文字） ---- */
-const ASSETS = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
+/* ---- 画像プリロード ---- */
+const ASSETS=["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
 function preload(list){
   return Promise.all(list.map(name=>new Promise(res=>{
     const img=new Image();
-    img.onload=()=>res({ok:true, name, img, w:img.naturalWidth, h:img.naturalHeight, src:"./"+name});
-    img.onerror=()=>res({ok:false, name, w:80, h:100, src:"./"+name});
+    img.onload=()=>res({ok:true,name,img,w:img.naturalWidth,h:img.naturalHeight,src:"./"+name});
+    img.onerror=()=>res({ok:false,name,w:80,h:100,src:"./"+name});
     img.src="./"+name+"?v=3";
   })));
 }
 
 /* ---- ゲーム状態 ---- */
-const MAX_W = 56; // 画像の表示幅（小さめ）
-let photos=[], qi=0, cur=null, followX=W/2, score=0, over=false;
+const MAX_W=56;
+let photos=[], qi=0, cur=null, followX=W/2, isDrag=false, score=0, over=false;
 const scoreEl=document.getElementById('score');
 const overEl=document.getElementById('gameover');
 function setScore(n){ score=n; scoreEl.textContent="SCORE "+score; }
 
 function makeBody(p,x,y,isStatic=true){
-  const ratio = p.h/p.w;
-  const w = Math.min(MAX_W, p.w || MAX_W), h = w*ratio;
-  const opt = { isStatic, restitution:0.08, friction:0.7 };
-  if(p.ok){
-    opt.render={ sprite:{ texture:p.src, xScale:w/p.w, yScale:h/p.h } };
-  }else{
-    opt.render={ fillStyle:"#ffb3d1", strokeStyle:"#c03", lineWidth:1.5 };
-  }
+  const ratio=p.h/p.w, w=Math.min(MAX_W, p.w||MAX_W), h=w*ratio;
+  const opt={ isStatic, restitution:0.08, friction:0.7 };
+  opt.render = p.ok ? { sprite:{texture:p.src, xScale:w/p.w, yScale:h/p.h} }
+                    : { fillStyle:"#ffb3d1", strokeStyle:"#c03", lineWidth:1.5 };
   return Bodies.rectangle(x,y,w,h,opt);
 }
 
 function spawn(){
   if(over) return;
   const p = photos[qi++ % photos.length];
-  cur = makeBody(p, followX, 80, true);    // まず静止で出す
+  cur = makeBody(p, followX, 80, true);
   World.add(engine.world, cur);
 }
 
 function drop(){
   if(!cur || over) return;
-  Body.setStatic(cur,false);               // 動的化して落下
+  Body.setStatic(cur,false);
   sfxDrop();
   cur=null; setScore(score+1);
   setTimeout(spawn, 500);
 }
 
+/* 完全リセット（動的・静的ともに台以外を除去） */
 function reset(){
+  const keep = new Set([bike.id, wheelL.id, wheelR.id]);
   Composite.allBodies(engine.world).forEach(b=>{
-    if(![bike,wheelL,wheelR].includes(b)) World.remove(engine.world,b);
+    if(!keep.has(b.id)) World.remove(engine.world, b);
   });
-  qi=0; over=false; setScore(0);
+  qi=0; over=false; isDrag=false; setScore(0);
   overEl.style.display='none';
   spawn();
 }
 
-/* ---- 入力（スワイプ感度UP / DROPはボタンのみ） ---- */
-const speed=0.35; // 追従スピード（上げると機敏）
-stage.addEventListener('pointermove', (e)=>{
+/* ---- 入力（スワイプ：押してる間は“ぴったり”、離すとイーズ） ---- */
+stage.addEventListener('pointerdown',(e)=>{
+  isDrag=true;
   const r=stage.getBoundingClientRect();
-  const x = (e.clientX - r.left) * (W/r.width);
-  followX = Math.max(30, Math.min(W-30, x));
-}, {passive:true});
+  followX = Math.max(30, Math.min(W-30, (e.clientX-r.left)*(W/r.width)));
+},{passive:true});
+stage.addEventListener('pointermove',(e)=>{
+  if(!isDrag) return;
+  const r=stage.getBoundingClientRect();
+  followX = Math.max(30, Math.min(W-30, (e.clientX-r.left)*(W/r.width)));
+},{passive:true});
+stage.addEventListener('pointerup',()=>{ isDrag=false; },{passive:true});
+stage.addEventListener('pointercancel',()=>{ isDrag=false; },{passive:true});
 
-// ★DROPはボタンだけ
-document.getElementById('drop').addEventListener('click', (e)=>{
-  initAudio(); // ここでも音解放しておく
+/* ★DROPはボタンだけ（ゲート解除も兼ねる） */
+document.getElementById('drop').addEventListener('click',()=>{
+  initAudio();
   drop();
 });
-document.getElementById('retry').onclick = reset;
+document.getElementById('retry').addEventListener('click',()=>{
+  initAudio();
+  reset();
+});
 
-/* ---- 追従・着地・ゲームオーバー処理 ---- */
+/* ---- フレーム更新 ---- */
 Events.on(engine,'beforeUpdate',()=>{
   if(cur && cur.isStatic){
-    Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*speed, y:cur.position.y});
+    if(isDrag){
+      // 押してる間はピタッと追従（小さい写真でも思い通りに動く）
+      Body.setPosition(cur, {x:followX, y:cur.position.y});
+    }else{
+      // 指を離してる時はスムーズ移動
+      const speed = 0.4;
+      Body.setPosition(cur, {x:cur.position.x+(followX-cur.position.x)*speed, y:cur.position.y});
+    }
   }
 });
 Events.on(engine,'afterUpdate',()=>{
-  // 一番下まで落ちた動的ボディがあればゲームオーバー
   const fallen = Composite.allBodies(engine.world).find(b=>!b.isStatic && b.position.y>660);
   if(fallen && !over){
-    over=true;
-    sfxOver();
-    overEl.style.display='flex';
+    over = true; sfxOver(); overEl.style.display='flex';
   }
 });
-// 着地音（速度が小さい衝突だけ）
-Events.on(engine,'collisionStart',(evt)=>{
-  evt.pairs.forEach(p=>{
+Events.on(engine,'collisionStart', (ev)=>{
+  ev.pairs.forEach(p=>{
     const a=p.bodyA, b=p.bodyB;
-    const dyn = (!a.isStatic && b.isStatic) || (!b.isStatic && a.isStatic);
-    if(dyn && p.collision.depth>0.2){ sfxLand(); }
+    const dynStatic = (!a.isStatic && b.isStatic) || (!b.isStatic && a.isStatic);
+    if(dynStatic && p.collision.depth>0.15) sfxLand();
   });
 });
 
