@@ -3,23 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>ustarp969GAME – Balance Fixed</title>
+<title>ustarp969GAME – Random Platform & Tint</title>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
   #wrap{position:fixed;inset:0}
   #bg,#stage{position:absolute;inset:0;margin:auto;touch-action:none;display:block}
   #bg{z-index:1}
   #stage{z-index:2}
-  /* HUDを最前面に上げる */
   #hud{position:fixed;top:10px;left:10px;right:10px;z-index:10;display:flex;justify-content:space-between;align-items:center;color:#123}
   #tip{font-size:13px;opacity:.75;margin-left:8px}
   button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
   #drop{background:#ff5c97;color:#fff;margin-right:6px}
   #retry{background:#79c6ff;color:#003}
   #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:3;pointer-events:none}
-  /* サウンド解放オーバーレイ */
   #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.15);color:#fff;font-weight:900;font-size:28px;text-shadow:0 3px 12px #0008;z-index:8}
-  /* GAME OVER は見せるだけ（クリックはスルー） */
   #gameover{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:40px;text-shadow:0 4px 16px #0008;z-index:7;pointer-events:none}
 </style>
 </head>
@@ -42,11 +39,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-/* ===== サイズ ===== */
+/* ===== サイズ・背景 ===== */
 const W=420, H=720;
-
-/* ===== 背景 ===== */
-const bg=document.getElementById('bg'); const bctx=bg.getContext('2d');
+const bg=document.getElementById('bg'), bctx=bg.getContext('2d');
 function drawBG(t=0){
   const g=bctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,"#bfe7ff"); g.addColorStop(0.55,"#e9f6ff"); g.addColorStop(1,"#ffe3f0");
@@ -70,23 +65,22 @@ function drawBG(t=0){
 }
 (function loop(){ drawBG(performance.now()/1000); requestAnimationFrame(loop); })();
 
-/* ===== オーディオ（音量UP） ===== */
+/* ===== オーディオ（音量さらにUP） ===== */
 let actx=null, master=null;
 function initAudio(){
   if(actx) return;
   const AC=window.AudioContext||window.webkitAudioContext;
   actx=new AC();
   master=actx.createGain();
-  master.gain.value=0.42; // ★ここで全体音量UP
+  master.gain.value=0.5; // ★BGM/SE 全体音量アップ
   master.connect(actx.destination);
-  // iOS解放：無音バッファ
+  // iOS解放
   const buf=actx.createBuffer(1,1,actx.sampleRate);
-  const src=actx.createBufferSource();
-  src.buffer=buf; src.connect(master); src.start();
+  const src=actx.createBufferSource(); src.buffer=buf; src.connect(master); src.start();
   actx.resume && actx.resume();
   startBGM();
 }
-function blip(freq,len=.25,vol=.25,type='triangle'){
+function blip(freq,len=.25,vol=.28,type='triangle'){
   if(!actx) return;
   const o=actx.createOscillator(), g=actx.createGain();
   o.type=type; o.frequency.value=freq; o.connect(g); g.connect(master);
@@ -96,16 +90,16 @@ function blip(freq,len=.25,vol=.25,type='triangle'){
   g.gain.exponentialRampToValueAtTime(0.0001,t+len);
   o.start(t); o.stop(t+len+0.02);
 }
-function sfxDrop(){ blip(260,0.20,0.36,'square'); blip(520,0.12,0.22,'triangle'); }
-function sfxLand(){ blip(180,0.14,0.28,'sawtooth'); }
-function sfxOver(){ blip(200,0.5,0.34,'triangle'); blip(120,0.6,0.30,'sine'); }
+function sfxDrop(){ blip(260,0.20,0.40,'square'); blip(520,0.12,0.26,'triangle'); }
+function sfxLand(){ blip(180,0.14,0.32,'sawtooth'); }
+function sfxOver(){ blip(200,0.5,0.38,'triangle'); blip(120,0.6,0.34,'sine'); }
 function startBGM(){
   if(!actx) return;
   const base=261.63; const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5]; let i=0;
   (function loop(){
     if(!actx) return;
-    blip(base*Math.pow(2, seq[i%seq.length]/12), .34, .18, 'triangle');
-    if(i%4===0) blip(base/2, .48, .12, 'sine');
+    blip(base*Math.pow(2,seq[i%seq.length]/12), .34, .22, 'triangle');
+    if(i%4===0) blip(base/2, .50, .16, 'sine');
     i++; setTimeout(loop, 340);
   })();
 }
@@ -120,41 +114,89 @@ const engine=Engine.create({gravity:{x:0,y:.95}});
 const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
 Render.run(render); Runner.run(Runner.create(),engine);
 
-/* ---- 固定台（バイク） ---- */
-const bikeVerts=Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
-const bike=Bodies.fromVertices(W/2,560,bikeVerts,{isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
-const wheelL=Bodies.circle(W/2-60,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
-const wheelR=Bodies.circle(W/2+90,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
-World.add(engine.world,[bike,wheelL,wheelR]);
-// サイド壁
-World.add(engine.world,[
-  Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}}),
-  Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}})
-]);
+/* ---- 壁（左右） ---- */
+const wallL=Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}});
+const wallR=Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}});
+World.add(engine.world,[wallL,wallR]);
 
-/* ---- 画像プリロード ---- */
+/* ===== ランダム台（形パターン） ===== */
+let platformBodies=[];
+function addBodies(arr){ World.add(engine.world, arr); platformBodies=arr; }
+function removePlatform(){ platformBodies.forEach(b=>World.remove(engine.world,b)); platformBodies=[]; }
+
+function makePlatform(type){
+  if(type==='flat'){ // フラットな長台
+    const base=Bodies.rectangle(W/2, 600, 260, 18, {isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
+    return [base];
+  }
+  if(type==='wedge'){ // ちょい傾斜の台 ×2
+    const a=Bodies.rectangle(W/2-60, 605, 130, 16, {isStatic:true, angle:-0.06, render:{fillStyle:"#3a3a3a",strokeStyle:"#000",lineWidth:2}});
+    const b=Bodies.rectangle(W/2+60, 605, 130, 16, {isStatic:true, angle: 0.06, render:{fillStyle:"#3a3a3a",strokeStyle:"#000",lineWidth:2}});
+    return [a,b];
+  }
+  if(type==='bumpy'){ // デコボコ台
+    const verts=Vertices.fromPath("-120 0 -80 -10 -40 0 0 -8 40 0 80 -12 120 0 120 12 -120 12");
+    const pv=Bodies.fromVertices(W/2,600,verts,{isStatic:true, render:{fillStyle:"#2c2c2c",strokeStyle:"#000",lineWidth:2}});
+    return [pv];
+  }
+  // 既存バイク台
+  const bikeVerts=Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10");
+  const bike=Bodies.fromVertices(W/2,560,bikeVerts,{isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
+  const wheelL=Bodies.circle(W/2-60,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+  const wheelR=Bodies.circle(W/2+90,590,24,{isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+  return [bike,wheelL,wheelR];
+}
+const PLATFORM_TYPES=['bike','flat','wedge','bumpy'];
+function pickPlatform(){ return PLATFORM_TYPES[(Math.random()*PLATFORM_TYPES.length)|0]; }
+function setRandomPlatform(){ removePlatform(); addBodies(makePlatform(pickPlatform())); }
+setRandomPlatform(); // 初回
+
+/* ===== 画像プリロード ===== */
 const ASSETS=["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
 function preload(list){
   return Promise.all(list.map(name=>new Promise(res=>{
     const img=new Image();
     img.onload=()=>res({ok:true,name,img,w:img.naturalWidth,h:img.naturalHeight,src:"./"+name});
     img.onerror=()=>res({ok:false,name,w:80,h:100,src:"./"+name});
-    img.src="./"+name+"?v=3";
+    img.src="./"+name+"?v=4";
   })));
 }
 
-/* ---- ゲーム状態 ---- */
-const MAX_W=56;
-let photos=[], qi=0, cur=null, followX=W/2, isDrag=false, score=0, over=false;
+/* ===== テクスチャ着色（色ランダム） ===== */
+const PALETTE = ["#ff7aa2","#ffd166","#7bdff2","#b8f7d4","#c3a6ff","#ffbd59","#9cff7a","#ff9cee"];
+function tintTexture(img, color){
+  // オフスクリーンで色乗せ（アルファ保持）
+  const w=img.naturalWidth, h=img.naturalHeight;
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx=c.getContext('2d');
+  ctx.drawImage(img,0,0);
+  ctx.globalCompositeOperation='source-atop';
+  ctx.fillStyle=color;
+  ctx.fillRect(0,0,w,h);
+  ctx.globalCompositeOperation='destination-in';
+  ctx.drawImage(img,0,0);
+  return c.toDataURL(); // dataURLをスプライトテクスチャに
+}
+
+/* ===== ゲーム ===== */
+const MAX_W=44; // ★小さくして難易度ダウン
+let photos=[], qi=0, cur=null, followX=W/2, isDrag=false, score=0, over=false, drops=0;
 const scoreEl=document.getElementById('score');
 const overEl=document.getElementById('gameover');
+
 function setScore(n){ score=n; scoreEl.textContent="SCORE "+score; }
 
 function makeBody(p,x,y,isStatic=true){
   const ratio=p.h/p.w, w=Math.min(MAX_W, p.w||MAX_W), h=w*ratio;
   const opt={ isStatic, restitution:0.08, friction:0.7 };
-  opt.render = p.ok ? { sprite:{texture:p.src, xScale:w/p.w, yScale:h/p.h} }
-                    : { fillStyle:"#ffb3d1", strokeStyle:"#c03", lineWidth:1.5 };
+  if(p.ok){
+    // ランダム色で着色したテクスチャを生成
+    const color = PALETTE[(Math.random()*PALETTE.length)|0];
+    const tex = tintTexture(p.img, color);
+    opt.render = { sprite:{ texture:tex, xScale:w/p.w, yScale:h/p.h } };
+  }else{
+    opt.render={ fillStyle:"#ffb3d1", strokeStyle:"#c03", lineWidth:1.5 };
+  }
   return Bodies.rectangle(x,y,w,h,opt);
 }
 
@@ -170,21 +212,26 @@ function drop(){
   Body.setStatic(cur,false);
   sfxDrop();
   cur=null; setScore(score+1);
-  setTimeout(spawn, 500);
+  drops++;
+  // 5個ごとに台をランダム変更して変化を出す
+  if(drops % 5 === 0){ setRandomPlatform(); }
+  setTimeout(spawn, 480);
 }
 
-/* 完全リセット（動的・静的ともに台以外を除去） */
+/* 完全リセット（台は毎回ランダム） */
 function reset(){
-  const keep = new Set([bike.id, wheelL.id, wheelR.id]);
-  Composite.allBodies(engine.world).forEach(b=>{
-    if(!keep.has(b.id)) World.remove(engine.world, b);
-  });
-  qi=0; over=false; isDrag=false; setScore(0);
+  // まず全ボディを除去
+  Composite.allBodies(engine.world).forEach(b=>World.remove(engine.world,b));
+  // 壁を戻す
+  World.add(engine.world,[wallL,wallR]);
+  // ランダム台を入れ直す
+  setRandomPlatform();
+  qi=0; over=false; isDrag=false; drops=0; setScore(0);
   overEl.style.display='none';
   spawn();
 }
 
-/* ---- 入力（スワイプ：押してる間は“ぴったり”、離すとイーズ） ---- */
+/* ===== 入力（押してる間は“ぴったり”、離すとイーズ） ===== */
 stage.addEventListener('pointerdown',(e)=>{
   isDrag=true;
   const r=stage.getBoundingClientRect();
@@ -198,34 +245,28 @@ stage.addEventListener('pointermove',(e)=>{
 stage.addEventListener('pointerup',()=>{ isDrag=false; },{passive:true});
 stage.addEventListener('pointercancel',()=>{ isDrag=false; },{passive:true});
 
-/* ★DROPはボタンだけ（ゲート解除も兼ねる） */
+/* ★DROPはボタンだけ（サウンド解放も兼ねる） */
 document.getElementById('drop').addEventListener('click',()=>{
-  initAudio();
-  drop();
+  initAudio(); drop();
 });
 document.getElementById('retry').addEventListener('click',()=>{
-  initAudio();
-  reset();
+  initAudio(); reset();
 });
 
-/* ---- フレーム更新 ---- */
+/* ===== 物理更新 ===== */
 Events.on(engine,'beforeUpdate',()=>{
   if(cur && cur.isStatic){
     if(isDrag){
-      // 押してる間はピタッと追従（小さい写真でも思い通りに動く）
       Body.setPosition(cur, {x:followX, y:cur.position.y});
     }else{
-      // 指を離してる時はスムーズ移動
-      const speed = 0.4;
+      const speed=0.45; // イーズ速度
       Body.setPosition(cur, {x:cur.position.x+(followX-cur.position.x)*speed, y:cur.position.y});
     }
   }
 });
 Events.on(engine,'afterUpdate',()=>{
   const fallen = Composite.allBodies(engine.world).find(b=>!b.isStatic && b.position.y>660);
-  if(fallen && !over){
-    over = true; sfxOver(); overEl.style.display='flex';
-  }
+  if(fallen && !over){ over=true; sfxOver(); overEl.style.display='flex'; }
 });
 Events.on(engine,'collisionStart', (ev)=>{
   ev.pairs.forEach(p=>{
@@ -235,7 +276,7 @@ Events.on(engine,'collisionStart', (ev)=>{
   });
 });
 
-/* ---- スタート ---- */
+/* ===== スタート ===== */
 preload(ASSETS).then(list=>{ photos=list; setScore(0); spawn(); });
 </script>
 </body>
