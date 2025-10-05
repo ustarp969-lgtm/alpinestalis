@@ -5,31 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
 <title>ustarp969GAME – Balance</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;
-    font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
   #wrap{position:fixed;inset:0}
-  #bg,#stage{
-    position:absolute;inset:0;margin:auto;touch-action:none;display:block;
-  }
-  #bg{z-index:1}
-  #stage{z-index:2}
-  #hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;
-    display:flex;justify-content:space-between;align-items:center;color:#123}
+  #bg,#stage{position:absolute;inset:0;touch-action:none;display:block}
+  #bg{z-index:1} #stage{z-index:2}
+  #hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;display:flex;justify-content:space-between;align-items:center;color:#123}
   #tip{font-size:13px;opacity:.75;margin-left:8px}
   button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
   #drop{background:#ff5c97;color:#fff;margin-right:6px}
   #retry{background:#79c6ff;color:#003}
-  #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;
-    font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
-  #msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#fff;font-size:42px;font-weight:900;text-shadow:0 3px 10px #0008;
-    pointer-events:none;opacity:0;transition:opacity .6s ease;z-index:4;}
-  #msg.show{opacity:1;}
+  #title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
+  #overlay{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.35);color:#fff;font-weight:900;font-size:40px;z-index:4;text-shadow:0 3px 12px #0008}
 </style>
 </head>
 <body>
 <div id="hud">
-  <div><span id="score">スコア 0</span><span id="tip">　スワイプで移動 → 「落とす」でドロップ</span></div>
+  <div>
+    <span id="score">スコア 0</span>
+    <span id="tip">　スワイプで移動 → 「落とす」でドロップ</span>
+  </div>
   <div>
     <button id="drop">落とす</button>
     <button id="retry">やり直し</button>
@@ -41,137 +35,175 @@
   <canvas id="stage" width="420" height="720"></canvas>
 </div>
 <div id="title">ustarp969GAME</div>
-<div id="msg">さぁいきますん。</div>
+<div id="overlay"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-const W=420,H=720;
-const bg=document.getElementById("bg"),bctx=bg.getContext("2d");
+/* ===== 基本サイズ ===== */
+const W=420, H=720;
+
+/* ===== 背景（雲＋ロゴ） ===== */
+const bg = document.getElementById('bg');
+const bctx = bg.getContext('2d');
 function drawBG(t=0){
   const g=bctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,"#bfe7ff");g.addColorStop(0.55,"#e9f6ff");g.addColorStop(1,"#ffe3f0");
-  bctx.fillStyle=g;bctx.fillRect(0,0,W,H);
+  g.addColorStop(0,"#bfe7ff"); g.addColorStop(0.55,"#e9f6ff"); g.addColorStop(1,"#ffe3f0");
+  bctx.fillStyle=g; bctx.fillRect(0,0,W,H);
   bctx.globalAlpha=.6;
   for(let i=0;i<5;i++){
-    const x=(t*12+i*120)%(W+160)-80,y=60+i*46;
+    const x=(t*12+i*120)%(W+160)-80, y=60+i*46;
     bctx.fillStyle="#fff";
     bctx.beginPath();
     bctx.ellipse(x,y,38,18,0,0,Math.PI*2);
+    bctx.ellipse(x+24,y+6,26,12,0,0,Math.PI*2);
+    bctx.ellipse(x-22,y+8,22,10,0,0,Math.PI*2);
     bctx.fill();
   }
   bctx.globalAlpha=1;
   bctx.save();
   bctx.translate(W/2,H-42);
   bctx.fillStyle="rgba(0,0,0,.12)";
-  bctx.font="900 22px system-ui";
+  bctx.font="900 22px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
   bctx.textAlign="center";
   bctx.fillText("ustarp969GAME",0,0);
   bctx.restore();
 }
-(function loop(){drawBG(performance.now()/1000);requestAnimationFrame(loop);})();
+(function loop(){ drawBG(performance.now()/1000); requestAnimationFrame(loop); })();
 
-/* ===== Audio ===== */
-let actx=null,master=null;
-function initAudio(){
-  if(actx)return;
-  const AC=window.AudioContext||window.webkitAudioContext;
-  actx=new AC();
-  master=actx.createGain();master.gain.value=.35;master.connect(actx.destination);
-  const base=261.63,seq=[0,2,4,7,9,7,4,2,0,5,7,9,12,9,7,5];let i=0;
-  function note(semi,len=.36,vol=.1,type='triangle'){
-    const o=actx.createOscillator(),g=actx.createGain();
-    o.type=type;o.frequency.value=base*Math.pow(2,semi/12);
-    o.connect(g);g.connect(master);
-    const t=actx.currentTime;
-    g.gain.setValueAtTime(.0001,t);
-    g.gain.exponentialRampToValueAtTime(vol,t+.03);
-    g.gain.exponentialRampToValueAtTime(.0001,t+len);
-    o.start(t);o.stop(t+len+.02);
+/* ===== BGM（初回タップで開始） ===== */
+let actx=null, master=null;
+addEventListener('pointerdown',()=>{
+  if(actx) return;
+  const AC=window.AudioContext||window.webkitAudioContext; actx=new AC();
+  master=actx.createGain(); master.gain.value=.25; master.connect(actx.destination);
+  const base=261.63; const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5]; let i=0;
+  function note(semi,len=.36,vol=.18,type='triangle'){
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value=base*Math.pow(2,semi/12); o.connect(g); g.connect(master);
+    const t=actx.currentTime; g.gain.setValueAtTime(.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+.03); g.gain.exponentialRampToValueAtTime(.0001,t+len);
+    o.start(t); o.stop(t+len+.02);
   }
-  (function seqLoop(){note(seq[i%seq.length]);if(i%4===0)note(-12,.5,.1,'sine');i++;setTimeout(seqLoop,340);})();
-}
-function se(freq=440,dur=.25,vol=.2){
-  if(!actx)return;
-  const o=actx.createOscillator(),g=actx.createGain();
-  o.type='square';o.frequency.value=freq;g.gain.value=vol;
-  o.connect(g);g.connect(master);
-  o.start();o.stop(actx.currentTime+dur);
-}
+  (function seqLoop(){ note(seq[i%seq.length]); if(i%4===0) note(-12,.5,.12,'sine'); i++; setTimeout(seqLoop,340); })();
+},{once:true});
 
-/* ===== Matter.js ===== */
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite}=Matter;
-const stage=document.getElementById("stage");
-const engine=Engine.create({gravity:{x:0,y:.95}});
-const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
-Render.run(render);Runner.run(Runner.create(),engine);
+/* ===== Matter.js セットアップ ===== */
+const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices} = Matter;
+const stage = document.getElementById('stage');
+const engine = Engine.create({gravity:{x:0,y:.95}});
+const render = Render.create({canvas:stage, engine, options:{width:W,height:H,wireframes:false, background:'transparent'}});
+Render.run(render);
+Runner.run(Runner.create(), engine);
 
-/* ===== 台（より平ら） ===== */
-const flatVerts = Matter.Vertices.fromPath("0 0 50 -2 100 -1 150 -2 200 -1 250 0 300 0 250 2 150 2 50 2");
-const base = Bodies.fromVertices(W/2,580,flatVerts,{isStatic:true,render:{fillStyle:"#333"}});
-const wheelL = Bodies.circle(W/2-90,600,24,{isStatic:true,render:{fillStyle:"#444"}});
-const wheelR = Bodies.circle(W/2+90,600,24,{isStatic:true,render:{fillStyle:"#444"}});
-World.add(engine.world,[base,wheelL,wheelR]);
+/* ---- 台（フラット気味＋車輪） ---- */
+const deck = Bodies.rectangle(W/2, 600, 260, 14, {isStatic:true, render:{fillStyle:"#2f2f2f"}});
+const wheelL = Bodies.circle(W/2-90, 630, 24, {isStatic:true,render:{fillStyle:"#3a3a3a"}});
+const wheelR = Bodies.circle(W/2+90, 630, 24, {isStatic:true,render:{fillStyle:"#3a3a3a"}});
+World.add(engine.world,[deck,wheelL,wheelR]);
+// サイド壁
 World.add(engine.world,[
   Bodies.rectangle(-20,H/2,40,H,{isStatic:true,render:{visible:false}}),
   Bodies.rectangle(W+20,H/2,40,H,{isStatic:true,render:{visible:false}})
 ]);
 
-/* ===== ゲームオブジェクト ===== */
-const COLORS=["#6cf","#fc6","#f66","#6f9","#f9f","#9ff"];
-let cur=null,followX=W/2,score=0,over=false;
-const scoreEl=document.getElementById("score");
-function setScore(n){score=n;scoreEl.textContent="スコア "+score;}
+/* ===== 画像ロード（大文字/小文字 両方試す） ===== */
+const FILES = ["I","O","T","L","J","S"];
+async function loadOne(name){
+  const tryList = [`./${name}.PNG`, `./${name}.png`];
+  for(const src of tryList){
+    const ok = await new Promise(resolve=>{
+      const img=new Image();
+      img.onload=()=>resolve({ok:true, src, w:img.naturalWidth, h:img.naturalHeight});
+      img.onerror=()=>resolve(null);
+      img.src=src+"?v=4";
+    });
+    if(ok) return ok;
+  }
+  return {ok:false, src:null, w:60, h:90};
+}
+async function preload(){
+  const arr=[];
+  for(const n of FILES){
+    arr.push(await loadOne(n));
+  }
+  return arr;
+}
+
+/* ===== ゲーム状態 ===== */
+const MAX_W = 56; // 小さめ
+let photos=[], qi=0, cur=null, followX=W/2, score=0, over=false;
+const scoreEl=document.getElementById('score');
+const overlay=document.getElementById('overlay');
+function setScore(n){ score=n; scoreEl.textContent="スコア "+score; }
+function showOverlay(text, ms=900){
+  overlay.textContent=text; overlay.style.display='grid';
+  setTimeout(()=>overlay.style.display='none', ms);
+}
+
+/* 1体生成（写真最優先） */
+function makeBody(pic,x,y,isStatic=true){
+  const ratio = pic.h / pic.w;
+  const w = Math.min(MAX_W, pic.w||MAX_W);
+  const h = Math.max(20, w*ratio);
+  const opt = { isStatic, restitution:0.08, friction:0.7 };
+  if(pic.ok && pic.src){
+    opt.render = { sprite:{ texture:pic.src, xScale:w/(pic.w||w), yScale:h/(pic.h||h) } };
+  }else{
+    opt.render = { fillStyle:"#77d0ff", strokeStyle:"#2aa", lineWidth:1.5 };
+  }
+  return Bodies.rectangle(x,y,w,h,opt);
+}
 
 function spawn(){
-  const c=COLORS[Math.floor(Math.random()*COLORS.length)];
-  cur=Bodies.rectangle(followX,100,40,60,{isStatic:true,render:{fillStyle:c}});
-  World.add(engine.world,cur);
+  if(over) return;
+  const p = photos[qi++ % photos.length];
+  cur = makeBody(p, followX, 80, true);
+  World.add(engine.world, cur);
 }
+
 function drop(){
-  if(!cur||over)return;
-  Body.setStatic(cur,false);se(800,.1);cur=null;
-  setScore(score+1);
-  setTimeout(spawn,500);
+  if(!cur || over) return;
+  Body.setStatic(cur,false);
+  cur=null; setScore(score+1);
+  setTimeout(spawn, 600);
 }
+
 function reset(){
   Composite.allBodies(engine.world).forEach(b=>{
-    if(![base,wheelL,wheelR].includes(b))World.remove(engine.world,b);
+    if(![deck,wheelL,wheelR].includes(b)) World.remove(engine.world,b);
   });
-  over=false;setScore(0);
-  showMsg("さぁいきますん。");
-  spawn();
+  qi=0; over=false; setScore(0); showOverlay("さぁいきますん。",700); spawn();
 }
-document.getElementById("drop").onclick=drop;
-document.getElementById("retry").onclick=reset;
-stage.addEventListener("pointermove",e=>{
+
+/* 入力（スワイプ移動／ボタンで落とす） */
+stage.addEventListener('pointermove',e=>{
   const r=stage.getBoundingClientRect();
-  followX=Math.max(30,Math.min(W-30,(e.clientX-r.left)*(W/r.width)));
+  followX = Math.max(30, Math.min(W-30, (e.clientX - r.left) * (W/r.width)));
 });
-Events.on(engine,"beforeUpdate",()=>{
-  if(cur&&cur.isStatic){
-    Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.25,y:cur.position.y});
+document.getElementById('drop').onclick = drop;
+document.getElementById('retry').onclick = reset;
+
+/* 追従＆ゲームオーバー検出 */
+Events.on(engine,'beforeUpdate',()=>{
+  if(cur && cur.isStatic){
+    Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.25, y:cur.position.y});
   }
 });
-Events.on(engine,"afterUpdate",()=>{
-  const fallen=Composite.allBodies(engine.world).find(b=>!b.isStatic&&b.position.y>660);
-  if(fallen&&!over){
-    over=true;se(220,.4);
-    showMsg("おわた。");
+Events.on(engine,'afterUpdate',()=>{
+  // 画面下に落ちたらゲームオーバー
+  const fallen = Composite.allBodies(engine.world).find(b=>!b.isStatic && b.position.y>690);
+  if(fallen && !over){
+    over=true; showOverlay("おわた。",1000);
   }
 });
 
-/* ===== メッセージ表示 ===== */
-const msg=document.getElementById("msg");
-function showMsg(text){
-  msg.textContent=text;
-  msg.classList.add("show");
-  setTimeout(()=>msg.classList.remove("show"),1200);
-}
-
-/* ===== 初期化 ===== */
-document.body.addEventListener("pointerdown",()=>{initAudio();},{once:true});
-showMsg("さぁいきますん。");
-spawn();
+/* スタート */
+preload().then(list=>{
+  photos=list;
+  // デバッグ：コンソールにロード結果
+  console.log("loaded", list);
+  setScore(0); showOverlay("さぁいきますん。",700); spawn();
+});
 </script>
 </body>
 </html>
