@@ -3,37 +3,38 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>ustarp969GAME – さぁいきますん。</title>
+<title>ustarp969GAME – Balance</title>
 <style>
-html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;
-font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;}
-#wrap{position:fixed;inset:0}
-#bg,#stage{
-  position:absolute; inset:0; margin:auto; display:block; touch-action:none;
-}
-#bg{z-index:1}
-#stage{z-index:2}
-#hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;
-display:flex;justify-content:space-between;align-items:center;color:#123}
-#tip{font-size:13px;opacity:.75;margin-left:8px}
-button{border:none;border-radius:12px;padding:10px 14px;font-weight:800}
-#drop{background:#ff5c97;color:#fff;margin-right:6px}
-#retry{background:#79c6ff;color:#003}
-#title{position:fixed;inset:auto 0 40px 0;text-align:center;font-weight:900;
-font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
-#startMsg,#overMsg{
-  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:40px;font-weight:900;z-index:5;text-shadow:0 3px 10px #0008;pointer-events:none;
-  opacity:0;transition:opacity 0.5s ease;
-}
-#startMsg{color:#fff;}
-#overMsg{color:#ff4040;}
-.show{opacity:1;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfeeff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  #wrap{position:fixed;inset:0}
+  /* キャンバスは重ねる */
+  #bg,#stage{
+    position:absolute; inset:0; margin:auto; display:block; touch-action:none;
+  }
+  #bg{z-index:1}
+  #stage{z-index:2}
+  #hud{position:fixed;top:10px;left:10px;right:10px;z-index:3;display:flex;justify-content:space-between;align-items:center;color:#123}
+  #tip{font-size:13px;opacity:.75;margin-left:8px}
+  button{border:none;border-radius:14px;padding:10px 16px;font-weight:800}
+  #drop{background:#ff5c97;color:#fff;margin-right:8px}
+  #retry{background:#79c6ff;color:#003}
+  #title{position:fixed;inset:auto 0 44px 0;text-align:center;font-weight:900;font-size:30px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:none}
+  #overlay{
+    position:fixed;inset:0;background:transparent;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:900;font-size:32px;text-shadow:0 3px 10px #0008;z-index:4
+  }
+  .toast{
+    position:fixed;top:72px;left:0;right:0;margin:auto;width:max-content;padding:10px 14px;border-radius:12px;
+    font-weight:800;color:#002;background:#ffffffd0;box-shadow:0 8px 30px #0002;z-index:5;
+  }
 </style>
 </head>
 <body>
 <div id="hud">
-  <div><span id="score">スコア 0</span><span id="tip">　スワイプで移動 → 「落とす」でドロップ</span></div>
+  <div>
+    <span id="score">スコア 0</span>
+    <span id="tip">　スワイプで移動 → 「落とす」でドロップ</span>
+  </div>
   <div>
     <button id="drop">落とす</button>
     <button id="retry">やり直し</button>
@@ -41,137 +42,282 @@ font-size:28px;color:#fff;text-shadow:0 3px 10px #0004;z-index:1;pointer-events:
 </div>
 
 <div id="wrap">
+  <!-- 背景 -->
   <canvas id="bg" width="420" height="720"></canvas>
+  <!-- 物理描画 -->
   <canvas id="stage" width="420" height="720"></canvas>
 </div>
-<div id="title">ustarp969GAME</div>
 
-<div id="startMsg">さぁいきますん。</div>
-<div id="overMsg">おわた。</div>
+<div id="title">ustarp969GAME</div>
+<div id="overlay">さぁいきますん。</div>
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script>
-const W=420,H=720;
-const bg=document.getElementById('bg'),bctx=bg.getContext('2d');
+/* =========================
+   可変パラメータ（ここだけ触れば調整OK）
+   ========================= */
+const CANVAS_W = 420, CANVAS_H = 720;
+
+// キャラ（写真）サイズ係数：小さめに
+const CHAR_MAX_W = 52;      // 写真があればこの幅に収める
+const BLOCK_W     = 52;      // 写真が無い時の青ブロック幅
+const BLOCK_H     = 66;      // 青ブロック高さ
+
+// 台（固定）。shapeSet から毎回ランダム 1個を採用
+const USE_RANDOM_BASE = true;
+
+// サウンド音量
+const BGM_MASTER = 0.22;     // BGM
+const SE_MASTER  = 0.45;     // 効果音
+
+/* =========================
+   背景（下キャンバス）
+   ========================= */
+const bg = document.getElementById('bg');
+const bctx = bg.getContext('2d');
+
 function drawBG(t=0){
- const g=bctx.createLinearGradient(0,0,0,H);
- g.addColorStop(0,"#bfe7ff"); g.addColorStop(0.55,"#e9f6ff"); g.addColorStop(1,"#ffe3f0");
- bctx.fillStyle=g; bctx.fillRect(0,0,W,H);
- bctx.globalAlpha=.6;
- for(let i=0;i<5;i++){
-   const x=(t*12+i*120)%(W+160)-80, y=60+i*46;
-   bctx.fillStyle="#fff";
-   bctx.beginPath();
-   bctx.ellipse(x,y,38,18,0,0,Math.PI*2);
-   bctx.ellipse(x+24,y+6,26,12,0,0,Math.PI*2);
-   bctx.ellipse(x-22,y+8,22,10,0,0,Math.PI*2);
-   bctx.fill();
- }
- bctx.globalAlpha=1;
-}
-(function loop(){drawBG(performance.now()/1000);requestAnimationFrame(loop);})();
+  // グラデーション
+  const g=bctx.createLinearGradient(0,0,0,CANVAS_H);
+  g.addColorStop(0,"#bfe7ff");
+  g.addColorStop(0.55,"#e9f6ff");
+  g.addColorStop(1,"#ffe3f0");
+  bctx.fillStyle=g;
+  bctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
-/* ===== Audio ===== */
-let actx=null, master=null;
-const AC=window.AudioContext||window.webkitAudioContext;
+  // 雲
+  bctx.globalAlpha=.70;
+  for(let i=0;i<5;i++){
+    const x=(t*12+i*120)%(CANVAS_W+160)-80, y=70+i*60;
+    bctx.fillStyle="#fff";
+    bctx.beginPath();
+    bctx.ellipse(x,y,36,18,0,0,Math.PI*2);
+    bctx.ellipse(x+26,y+6,26,12,0,0,Math.PI*2);
+    bctx.ellipse(x-20,y+8,22,10,0,0,Math.PI*2);
+    bctx.fill();
+  }
+  bctx.globalAlpha=1;
+
+  // 透かし
+  bctx.save();
+  bctx.translate(CANVAS_W/2,CANVAS_H-46);
+  bctx.fillStyle="rgba(0,0,0,.13)";
+  bctx.font="900 24px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
+  bctx.textAlign="center";
+  bctx.fillText("ustarp969GAME",0,0);
+  bctx.restore();
+}
+(function loopBG(){ drawBG(performance.now()/1000); requestAnimationFrame(loopBG); })();
+
+/* =========================
+   サウンド（ユーザ操作で初期化）
+   ========================= */
+let actx=null, busBGM=null, busSE=null, bgmTimer=null;
+const overlay = document.getElementById('overlay');
+
 function initAudio(){
- if(actx)return;
- actx=new AC();
- master=actx.createGain(); master.gain.value=.35;
- master.connect(actx.destination);
- const base=261.63; const seq=[0,2,4,7,9,7,4,2,0,5,7,9,12,9,7,5]; let i=0;
- function note(semi,len=.36,vol=.1,type='triangle'){
+  if(actx) return;
+  const AC = window.AudioContext||window.webkitAudioContext;
+  actx = new AC();
+  busBGM = actx.createGain(); busBGM.gain.value = BGM_MASTER; busBGM.connect(actx.destination);
+  busSE  = actx.createGain(); busSE.gain.value  = SE_MASTER;  busSE.connect(actx.destination);
+
+  // かわいいBGM（ループ）
+  const base=261.63;
+  const seq=[0,2,4,7,9,7,4,2, 0,5,7,9,12,9,7,5];
+  let i=0;
+  function note(semi,len=.34,vol=.18,type='triangle'){
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value=base*Math.pow(2,semi/12);
+    o.connect(g); g.connect(busBGM);
+    const t=actx.currentTime;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+.03);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+len);
+    o.start(t); o.stop(t+len+.02);
+  }
+  function tick(){
+    note(seq[i%seq.length]);
+    if(i%4===0) note(-12,.5,.12,'sine');
+    i++; bgmTimer = setTimeout(tick,340);
+  }
+  tick();
+
+  // スタートトースト
+  overlay.style.display="none";
+  toast("さぁいきますん。");
+}
+function se(type="drop"){
+  if(!actx) return;
   const o=actx.createOscillator(), g=actx.createGain();
-  o.type=type; o.frequency.value=base*Math.pow(2,semi/12);
-  o.connect(g); g.connect(master);
+  o.connect(g); g.connect(busSE);
   const t=actx.currentTime;
-  g.gain.setValueAtTime(.0001,t);
-  g.gain.exponentialRampToValueAtTime(vol,t+.03);
-  g.gain.exponentialRampToValueAtTime(.0001,t+len);
-  o.start(t); o.stop(t+len+.02);
- }
- (function loop(){note(seq[i%seq.length]);if(i%4===0)note(-12,.5,.1,'sine');i++;setTimeout(loop,340);})();
+  if(type==="drop"){ o.type="square";   o.frequency.setValueAtTime(800,t); g.gain.setValueAtTime(.001,t);
+                     o.frequency.exponentialRampToValueAtTime(240,t+.18);
+                     g.gain.exponentialRampToValueAtTime(.5,t+.02); g.gain.exponentialRampToValueAtTime(.001,t+.22); }
+  else if(type==="landing"){ o.type="triangle"; o.frequency.setValueAtTime(180,t);
+                     g.gain.setValueAtTime(.001,t); g.gain.exponentialRampToValueAtTime(.35,t+.02);
+                     g.gain.exponentialRampToValueAtTime(.001,t+.22); }
+  else if(type==="over"){ o.type="sawtooth"; o.frequency.setValueAtTime(420,t);
+                     o.frequency.exponentialRampToValueAtTime(110,t+.35);
+                     g.gain.setValueAtTime(.001,t); g.gain.exponentialRampToValueAtTime(.6,t+.02);
+                     g.gain.exponentialRampToValueAtTime(.001,t+.36); }
+  o.start(t); o.stop(t+.5);
+}
+addEventListener('pointerdown', initAudio, {once:true});
+
+/* =========================
+   Matter.js（上キャンバス）
+   ========================= */
+const {Engine,Render,Runner,World,Bodies,Body,Events,Composite,Vertices} = Matter;
+const stage = document.getElementById('stage');
+const engine = Engine.create({gravity:{x:0,y:.95}});
+const render = Render.create({canvas:stage, engine, options:{width:CANVAS_W,height:CANVAS_H,wireframes:false, background:'transparent'}});
+Render.run(render);
+Runner.run(Runner.create(), engine);
+
+// サイド・床の見えない壁
+World.add(engine.world,[
+  Bodies.rectangle(-20,CANVAS_H/2,40,CANVAS_H,{isStatic:true,render:{visible:false}}),
+  Bodies.rectangle(CANVAS_W+20,CANVAS_H/2,40,CANVAS_H,{isStatic:true,render:{visible:false}}),
+  Bodies.rectangle(CANVAS_W/2,CANVAS_H+40,CANVAS_W,80,{isStatic:true,render:{visible:false}})
+]);
+
+// 台の候補（モトクロス風、板、カーブ等）
+const baseShapes = [
+  Vertices.fromPath("0 0  70 -16  110 -8  140 -18  170 -6  200 -12  230 0  180 16  120 14  60 10"),
+  Vertices.fromPath("0 0  240 0  240 16  0 16"),
+  Vertices.fromPath("0 8  30 0  210 0  240 8  210 16  30 16"),
+];
+
+const baseY = 580;
+let baseBody, wheelL, wheelR;
+
+function buildBase(){
+  if(baseBody){ World.remove(engine.world, [baseBody,wheelL,wheelR]); }
+  const verts = USE_RANDOM_BASE ? baseShapes[Math.floor(Math.random()*baseShapes.length)] : baseShapes[0];
+  baseBody = Bodies.fromVertices(CANVAS_W/2, baseY, verts, {isStatic:true, render:{fillStyle:"#2f2f2f",strokeStyle:"#000",lineWidth:2}});
+  wheelL   = Bodies.circle(CANVAS_W/2-60, baseY+30, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+  wheelR   = Bodies.circle(CANVAS_W/2+90, baseY+30, 24, {isStatic:true,render:{fillStyle:"#4a4a4a",strokeStyle:"#000",lineWidth:2}});
+  World.add(engine.world,[baseBody,wheelL,wheelR]);
+}
+buildBase();
+
+/* =========================
+   画像プリロード
+   ========================= */
+const ASSETS = ["I.PNG","O.PNG","T.PNG","L.PNG","J.PNG","S.PNG"];
+let photos=[];
+
+function preload(list){
+  return Promise.all(list.map(name=>new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>res({ok:true, name, img, w:img.naturalWidth, h:img.naturalHeight, src:"./"+name});
+    img.onerror=()=>res({ok:false, name, w:BLOCK_W, h:BLOCK_H, src:"./"+name});
+    // キャッシュ対策
+    img.src="./"+name+"?v="+Date.now();
+  })));
 }
 
-/* ===== Matter.js ===== */
-const {Engine,Render,Runner,World,Bodies,Body,Events,Composite}=Matter;
-const stage=document.getElementById('stage');
-const engine=Engine.create({gravity:{x:0,y:.95}});
-const render=Render.create({canvas:stage,engine,options:{width:W,height:H,wireframes:false,background:'transparent'}});
-Render.run(render); Runner.run(Runner.create(),engine);
+/* =========================
+   ゲーム状態
+   ========================= */
+let cur=null, followX=CANVAS_W/2, score=0, over=false, usedCount=0;
+const scoreEl = document.getElementById('score');
+const dropBtn  = document.getElementById('drop');
+const retryBtn = document.getElementById('retry');
 
-/* ---- 台 ---- */
-const base=Bodies.rectangle(W/2,600,220,20,{isStatic:true,render:{fillStyle:"#444"}});
-World.add(engine.world,[base]);
+function setScore(n){ score=n; scoreEl.textContent="スコア "+score; }
 
-/* ---- 状態 ---- */
-let cur=null,followX=W/2,score=0,over=false;
-const scoreEl=document.getElementById('score');
-function setScore(n){score=n;scoreEl.textContent="スコア "+score;}
-
-/* ---- ブロック生成 ---- */
-function makeBox(){
- const size=40;
- const colors=["#ff7b7b","#7bffb0","#7bb3ff","#fff07b"];
- const color=colors[Math.floor(Math.random()*colors.length)];
- return Bodies.rectangle(W/2,100,size,size,{render:{fillStyle:color}});
+function makeBodyFromPhoto(info, x, y){
+  if(info.ok){
+    // 写真：アスペクト維持で最大幅に収める
+    const ratio = info.h / info.w;
+    const w = Math.min(CHAR_MAX_W, info.w||CHAR_MAX_W);
+    const h = w * ratio;
+    return Bodies.rectangle(x, y, w, h, {
+      restitution:0.08, friction:0.7, isStatic:true,
+      render:{ sprite:{ texture:info.src, xScale:w/info.w, yScale:h/info.h } }
+    });
+  }else{
+    // 画像なし：青ブロック
+    return Bodies.rectangle(x, y, BLOCK_W, BLOCK_H, {
+      restitution:0.08, friction:0.7, isStatic:true,
+      render:{ fillStyle:"#78a7ff", strokeStyle:"#245", lineWidth:2 }
+    });
+  }
 }
 
-/* ---- スポーン・落下 ---- */
 function spawn(){
- if(over)return;
- cur=makeBox();
- World.add(engine.world,cur);
+  if(over) return;
+  const info = photos[(usedCount++) % photos.length];
+  cur = makeBodyFromPhoto(info, followX, 90);
+  World.add(engine.world, cur);
 }
 
 function drop(){
- if(!cur||over)return;
- Body.setStatic(cur,false);
- cur=null;
- setScore(score+1);
- setTimeout(spawn,600);
+  if(!cur || over) return;
+  Body.setStatic(cur,false);  // 動的化して落とす
+  se("drop");
+  cur=null;
+  setScore(score+1);
+  // 次の1個を出す
+  setTimeout(spawn, 450);
 }
 
 function reset(){
- World.clear(engine.world,false);
- World.add(engine.world,[base]);
- score=0;over=false;setScore(0);
- spawn();
- showStart();
+  Composite.allBodies(engine.world).forEach(b=>{
+    if([baseBody,wheelL,wheelR].includes(b)) return;
+    World.remove(engine.world, b);
+  });
+  buildBase();
+  usedCount=0; over=false; setScore(0); spawn();
 }
 
-stage.addEventListener('pointermove',e=>{
- const r=stage.getBoundingClientRect();
- followX=Math.max(30,Math.min(W-30,(e.clientX-r.left)*(W/r.width)));
-});
-document.getElementById('drop').onclick=drop;
-document.getElementById('retry').onclick=reset;
+function toast(text){
+  const t=document.createElement('div');
+  t.className="toast"; t.textContent=text;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.transition="transform .35s ease,opacity .35s"; t.style.transform="translateY(-10px)"; t.style.opacity="0"; },1300);
+  setTimeout(()=>t.remove(), 1700);
+}
 
-/* ---- 移動と判定 ---- */
+/* 入力：スワイプで位置、ドロップはボタンのみ */
+stage.addEventListener('pointerdown', (e)=>{
+  const r=stage.getBoundingClientRect();
+  followX = Math.max(28, Math.min(CANVAS_W-28, (e.clientX - r.left) * (CANVAS_W/r.width)));
+});
+stage.addEventListener('pointermove', (e)=>{
+  if(e.buttons===0) return; // 指が離れてたら無視
+  const r=stage.getBoundingClientRect();
+  followX = Math.max(28, Math.min(CANVAS_W-28, (e.clientX - r.left) * (CANVAS_W/r.width)));
+});
+dropBtn.onclick  = ()=>{ initAudio(); drop(); };
+retryBtn.onclick = ()=>{ initAudio(); reset(); };
+
+/* 追従：落とす前はXだけ付いてくる */
 Events.on(engine,'beforeUpdate',()=>{
- if(cur&&cur.isStatic){
-   Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.35,y:cur.position.y});
- }
+  if(cur && cur.isStatic){
+    Body.setPosition(cur,{x:cur.position.x+(followX-cur.position.x)*0.28, y:cur.position.y});
+  }
 });
+
+/* ゲームオーバー判定：一定より下に動体が落ちて触れたら */
 Events.on(engine,'afterUpdate',()=>{
- const fallen=Composite.allBodies(engine.world).find(b=>!b.isStatic&&b.position.y>700);
- if(fallen&&!over){
-   over=true;
-   document.getElementById('overMsg').classList.add('show');
-   setTimeout(()=>document.getElementById('overMsg').classList.remove('show'),2000);
- }
+  // 画面外落下 or 台より下に動体
+  const fallen = Composite.allBodies(engine.world).find(b=>!b.isStatic && b.position.y>CANVAS_H-70);
+  if(fallen && !over){
+    over=true; se("over");
+    toast("おわた。");
+  }
 });
 
-/* ---- スタート演出 ---- */
-function showStart(){
- const el=document.getElementById('startMsg');
- el.classList.add('show');
- setTimeout(()=>el.classList.remove('show'),1000);
-}
-
-document.body.addEventListener('pointerdown',()=>{initAudio();},{once:true});
-showStart();
-spawn();
+/* スタート */
+preload(ASSETS).then(list=>{
+  photos = list.length ? list : [{ok:false,w:BLOCK_W,h:BLOCK_H,src:""}];
+  setScore(0);
+  spawn();
+});
 </script>
 </body>
 </html>
